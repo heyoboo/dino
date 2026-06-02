@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minimalist Sprite Sandbox</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #121212;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      background-color: #151515;
+      border: 2px solid #333;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="sandboxCanvas"></canvas>
+
+  <script>
+    /**
+     * =========================================================================
+     * CANVAS DRAWING API CHEAT SHEET
+     * =========================================================================
+     * * 1. COLORS & STYLES
+     * ctx.fillStyle = "#hex";         // Set inside color (solid or rgba)
+     * ctx.strokeStyle = "#hex";       // Set outline color
+     * ctx.lineWidth = number;         // Set outline thickness
+     * * 2. FAST RECTANGLES
+     * ctx.fillRect(x, y, w, h);       // Draw a solid square/rectangle
+     * ctx.strokeRect(x, y, w, h);     // Draw an outline square/rectangle
+     * * 3. CUSTOM PATHS (Diamonds, Polygons, Lines)
+     * ctx.beginPath();                // 1. Start a new custom shape
+     * ctx.moveTo(x, y);               // 2. Move pen to start point (no draw)
+     * ctx.lineTo(x, y);               // 3. Draw a line to the next point
+     * ctx.closePath();                // 4. Snap line back to the start
+     * ctx.fill();                     // 5. Fill the shape with color
+     * ctx.stroke();                   // 6. Draw the outline of the shape
+     * * 4. MATRIX STATES (Always wrap your sprite code in these!)
+     * ctx.save();                     // Save current grid scale/colors
+     * ctx.restore();                  // Undo back to the saved state
+     * =========================================================================
+     */
+
+    const canvas = document.getElementById('sandboxCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // 16 units wide, 16 units high (retro sprite scale)
+    const GRID_SIZE = 16;
+
+    function render() {
+      // Dynamic JS square sizing with a fallback (prevents 0x0 bug on mobile/iframe load)
+      const minDimension = Math.min(window.innerWidth, window.innerHeight);
+      const size = minDimension > 0 ? Math.floor(minDimension * 0.95) : 400;
+      canvas.width = size;
+      canvas.height = size;
+
+      // Recalculate pixel scale INSIDE the render loop!
+      const PIXEL_SCALE = canvas.width / GRID_SIZE;
+
+      // Clear canvas
+      ctx.fillStyle = '#151515';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // --- 1. DRAW SIMPLE GRID LINES ---
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= GRID_SIZE; i++) {
+        // Vertical grid tracks
+        ctx.beginPath();
+        ctx.moveTo(i * PIXEL_SCALE, 0);
+        ctx.lineTo(i * PIXEL_SCALE, canvas.height);
+        ctx.stroke();
+
+        // Horizontal grid tracks
+        ctx.beginPath();
+        ctx.moveTo(0, i * PIXEL_SCALE);
+        ctx.lineTo(canvas.width, i * PIXEL_SCALE);
+        ctx.stroke();
+      }
+
+      // --- 2. SET UP THE COORD SYSTEM ---
+      // Scale context so 1 unit of code = 1 grid square exactly
+      ctx.save();
+      ctx.scale(PIXEL_SCALE, PIXEL_SCALE);
+
+
+      // =======================================================================
+      // DESIGN YOUR GEOMETRIC SPRITES HERE
+      // =======================================================================
+
+      // --- SPRITE A: MINIMALIST IRON ORE (Left Side: Center 4, 8) ---
+      let oreX = 4;
+      let oreY = 8;
+
+      // Flat bottom shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillRect(oreX - 2, oreY + 2, 4, 1);
+
+      // Base stone block
+      ctx.fillStyle = '#4e5561';
+      ctx.fillRect(oreX - 2, oreY - 2, 4, 4);
+
+      // Embedded ore highlight
+      ctx.fillStyle = '#18ffff';
+      ctx.fillRect(oreX - 1, oreY - 1, 2, 2);
+
+
+      // --- SPRITE B: MINIMALIST WOOD LOG (Right Side: Center 12, 8) ---
+      let logX = 12;
+      let logY = 8;
+
+      // Flat bottom shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillRect(logX - 3, logY + 2, 6, 1);
+
+      // Outer wood bark
+      ctx.fillStyle = '#8d6e63';
+      ctx.fillRect(logX - 3, logY - 1, 6, 3);
+
+      // Inner wood core (cut ends)
+      ctx.fillStyle = '#d7ccc8';
+      ctx.fillRect(logX - 3, logY - 1, 1, 3);
+      ctx.fillRect(logX + 2, logY - 1, 1, 3);
+
+      // =======================================================================
+      // END OF SPRITE CODE
+      // =======================================================================
+      
+      ctx.restore(); // Restores scale safely so next frame doesn't stretch
+    }
+
+    // Handle window resizing to keep it perfectly square
+    window.addEventListener('resize', render);
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>

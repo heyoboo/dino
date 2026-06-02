@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>DinoSurvivor Map</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+    }
+    #joystick-base {
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      background-color: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      pointer-events: none;
+      display: none;
+      z-index: 100;
+    }
+    #joystick-stick {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      background-color: rgba(255,255,255,0.4);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="mapCanvas"></canvas>
+  <div id="joystick-base">
+    <div id="joystick-stick"></div>
+  </div>
+
+  <script>
+    const MAP_SIZE = 5000;
+    const CHUNK_SIZE = 200;
+    const CHUNKS_PER_ROW = MAP_SIZE / CHUNK_SIZE;
+    const TOTAL_CHUNKS = CHUNKS_PER_ROW * CHUNKS_PER_ROW;
+
+    const TERRAIN_TYPES = {
+      GRASS: {
+        color: '#34d647'
+      },
+      DIRT: {
+        color: '#b08114'
+      },
+      WATER: {
+        color: '#1E90FF'
+      },
+    };
+
+    // Decorative sprites
+    const DECOR_SPRITES = [{
+      type: 'rock_small',
+      color: '#cad1d57a',
+      minSize: 5,
+      maxSize: 6,
+      maxPerChunk: 0.005,
+      collidable: false,
+      allowedTerrain: ['GRASS',
+        'DIRT',
+        'WATER'],
+    },
+      {
+        type: 'rock_large',
+        color: '#888e9ca3',
+        minSize: 10,
+        maxSize: 12,
+        maxPerChunk: 0.01,
+        collidable: true,
+        allowedTerrain: ['GRASS',
+          'DIRT',
+          'WATER'],
+      },
+      {
+        type: 'grass_tuft',
+        color: '#00c939bf',
+        minSize: 7,
+        maxSize: 9,
+        maxPerChunk: 0.01,
+        collidable: false,
+        allowedTerrain: ['GRASS'],
+      },
+      {
+        type: 'flower',
+        color: '#ff7481ba',
+        minSize: 3,
+        maxSize: 3,
+        maxPerChunk: 0.002,
+        collidable: false,
+        allowedTerrain: ['GRASS',
+          'DIRT'],
+      },
+      {
+        type: 'bush',
+        color: '#46a47bab',
+        minSize: 8,
+        maxSize: 2100,
+        maxPerChunk: 0.01,
+        collidable: false,
+        allowedTerrain: ['GRASS',
+          'DIRT'],
+      },
+      {
+        type: 'tree_stump',
+        color: '#d4a45d94',
+        minSize: 10,
+        maxSize: 12,
+        maxPerChunk: 0.01,
+        collidable: true,
+        allowedTerrain: ['GRASS',
+          'DIRT'],
+      },
+      {
+        type: 'water_plant',
+        color: '#0da5bca3',
+        minSize: 5,
+        maxSize: 8,
+        maxPerChunk: 0.01,
+        collidable: false,
+        allowedTerrain: ['WATER'],
+      },
+    ];
+
+    let map = [];
+    let cameraX = MAP_SIZE / 2;
+    let cameraY = MAP_SIZE / 2;
+
+    const canvas = document.getElementById('mapCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const joystickBase = document.getElementById('joystick-base');
+    const joystickStick = document.getElementById('joystick-stick');
+    let joystickActive = false;
+    let joystickX = 0, joystickY = 0;
+    const joystickRadius = 50;
+    const stickRadius = 20;
+
+    // ── CANVAS RESIZE ──────────────────────────────────────────
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', () => {
+      resizeCanvas(); renderMap();
+    });
+    resizeCanvas();
+
+    // ── JOYSTICK ───────────────────────────────────────────────
+    function positionJoystick(x, y) {
+      joystickBase.style.left = `${x - joystickRadius}px`;
+      joystickBase.style.top = `${y - joystickRadius}px`;
+      joystickBase.style.display = 'block';
+      joystickStick.style.left = `${joystickRadius - stickRadius}px`;
+      joystickStick.style.top = `${joystickRadius - stickRadius}px`;
+    }
+
+    function updateJoystick(clientX, clientY) {
+      const rect = joystickBase.getBoundingClientRect();
+      const centerX = rect.left + joystickRadius;
+      const centerY = rect.top + joystickRadius;
+      const dx = clientX - centerX;
+      const dy = clientY - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist <= joystickRadius) {
+        joystickX = dx;
+        joystickY = dy;
+      } else {
+        const angle = Math.atan2(dy, dx);
+        joystickX = Math.cos(angle) * joystickRadius;
+        joystickY = Math.sin(angle) * joystickRadius;
+      }
+
+      joystickStick.style.left = `${joystickRadius + joystickX - stickRadius}px`;
+      joystickStick.style.top = `${joystickRadius + joystickY - stickRadius}px`;
+    }
+
+    // ── MAP INIT ───────────────────────────────────────────────
+    function initializeMap() {
+      const m = Array.from({
+        length: TOTAL_CHUNKS
+      }, (_, i) => ({
+          type: 'GRASS',
+          x: i % CHUNKS_PER_ROW,
+          y: Math.floor(i / CHUNKS_PER_ROW),
+        }));
+
+      // Define edge distance (chunks from the border)
+      const edgeDistance = 3;
+      const waterCount = Math.floor(TOTAL_CHUNKS * 0.1);
+      let placedWater = 0;
+
+      // Step 1: Place water in edge regions (70% of total water)
+      const edgeWaterCount = Math.floor(waterCount * 0.7);
+      for (let i = 0; i < TOTAL_CHUNKS && placedWater < edgeWaterCount; i++) {
+        const {
+          x,
+          y
+        } = m[i];
+        const isEdgeChunk =
+        x < edgeDistance ||
+        x >= CHUNKS_PER_ROW - edgeDistance ||
+        y < edgeDistance ||
+        y >= CHUNKS_PER_ROW - edgeDistance;
+
+        if (isEdgeChunk && m[i].type === 'GRASS') {
+          m[i].type = 'WATER';
+          placedWater++;
+        }
+      }
+
+      // Step 2: Place remaining water randomly (30% of total water)
+      while (placedWater < waterCount) {
+        const idx = Math.floor(Math.random() * TOTAL_CHUNKS);
+        if (m[idx].type === 'GRASS') {
+          m[idx].type = 'WATER';
+          placedWater++;
+        }
+      }
+
+      // Step 3: Convert grass to dirt to reach 30% dirt (60% grass, 10% water)
+      const dirtCount = Math.floor(TOTAL_CHUNKS * 0.3);
+      const grassIndices = [];
+      for (let i = 0; i < TOTAL_CHUNKS; i++) {
+        if (m[i].type === 'GRASS') grassIndices.push(i);
+      }
+
+      // Shuffle grass indices
+      for (let i = grassIndices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [grassIndices[i],
+          grassIndices[j]] = [grassIndices[j],
+          grassIndices[i]];
+      }
+
+      // Convert the first (dirtCount) grass chunks to dirt
+      for (let i = 0; i < dirtCount && i < grassIndices.length; i++) {
+        m[grassIndices[i]].type = 'DIRT';
+      }
+
+      return m;
+    }
+
+    // Generate sprite positions dynamically during rendering
+    function getSpritePositions(chunk) {
+      if (!chunk.spritePositions) {
+        chunk.spritePositions = [];
+        for (const sprite of DECOR_SPRITES) {
+          // Check if this sprite is allowed on this terrain
+          if (!sprite.allowedTerrain.includes(chunk.type)) continue;
+
+          // Random number of sprites for this chunk (up to maxPerChunk * CHUNK_SIZE^2 / avg sprite area)
+          const avgSpriteArea = ((sprite.minSize + sprite.maxSize) / 2) ** 2;
+          const maxSprites = Math.floor(sprite.maxPerChunk * CHUNK_SIZE * CHUNK_SIZE / avgSpriteArea);
+          const numSprites = Math.floor(Math.random() * (maxSprites + 1)); // Random number of sprites (0 to maxSprites)
+
+          for (let i = 0; i < numSprites; i++) {
+            const size = sprite.minSize + Math.random() * (sprite.maxSize - sprite.minSize);
+            chunk.spritePositions.push({
+              type: sprite.type,
+              color: sprite.color,
+              size: size,
+              collidable: sprite.collidable,
+              x: Math.random() * (CHUNK_SIZE - size),
+              y: Math.random() * (CHUNK_SIZE - size),
+            });
+          }
+        }
+      }
+      return chunk.spritePositions;
+    }
+
+    function applyCellularAutomata(mapData) {
+      let cur = mapData.map(c => ({
+        ...c
+      }));
+      for (let pass = 0; pass < 3; pass++) {
+        const next = cur.map(c => ({
+          ...c
+        }));
+        for (let i = 0; i < TOTAL_CHUNKS; i++) {
+          if (cur[i].type === 'WATER') continue;
+          const {
+            x,
+            y
+          } = cur[i];
+          let g = 0,
+          d = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (!dx && !dy) continue;
+              const nx = x + dx,
+              ny = y + dy;
+              if (nx >= 0 && nx < CHUNKS_PER_ROW && ny >= 0 && ny < CHUNKS_PER_ROW) {
+                const t = cur[ny * CHUNKS_PER_ROW + nx].type;
+                if (t === 'GRASS') g++;
+                else if (t === 'DIRT') d++;
+              }
+            }
+          }
+          next[i].type = g >= d ? 'GRASS': 'DIRT';
+        }
+        cur = next;
+      }
+      return cur;
+    }
+
+    // ── RENDER ─────────────────────────────────────────────────
+    function renderMap() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const buffer = CHUNK_SIZE;
+      const left = cameraX - canvas.width / 2 - buffer;
+      const top = cameraY - canvas.height / 2 - buffer;
+      const right = cameraX + canvas.width / 2 + buffer;
+      const bottom = cameraY + canvas.height / 2 + buffer;
+
+      for (const chunk of map) {
+        const cx = chunk.x * CHUNK_SIZE;
+        const cy = chunk.y * CHUNK_SIZE;
+        if (cx + CHUNK_SIZE < left || cx > right || cy + CHUNK_SIZE < top || cy > bottom) continue;
+
+        const sx = cx - cameraX + canvas.width / 2;
+        const sy = cy - cameraY + canvas.height / 2;
+
+        // Draw terrain
+        ctx.fillStyle = TERRAIN_TYPES[chunk.type].color;
+        ctx.fillRect(sx, sy, CHUNK_SIZE, CHUNK_SIZE);
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.strokeRect(sx, sy, CHUNK_SIZE, CHUNK_SIZE);
+
+        // Draw decorative sprites
+        const spritePositions = getSpritePositions(chunk);
+        for (const sprite of spritePositions) {
+          ctx.fillStyle = sprite.color;
+          ctx.fillRect(sx + sprite.x, sy + sprite.y, sprite.size, sprite.size);
+        }
+      }
+
+      // Player (white rect, always centered)
+      const pw = 16,
+      ph = 24;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(
+        canvas.width / 2 - pw / 2,
+        canvas.height / 2 - ph / 2,
+        pw, ph
+      );
+    }
+
+    // ── CAMERA / GAME LOOP ────────────────────────────────────
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key] = true);
+    window.addEventListener('keyup', e => keys[e.key] = false);
+
+    function clampCamera() {
+      cameraX = Math.max(0, Math.min(MAP_SIZE, cameraX));
+      cameraY = Math.max(0, Math.min(MAP_SIZE, cameraY));
+    }
+
+    function gameLoop() {
+      const keyboardSpeed = 20;
+      const joystickSpeed = 0.5;
+      if (keys['w'] || keys['ArrowUp']) cameraY -= keyboardSpeed;
+      if (keys['s'] || keys['ArrowDown']) cameraY += keyboardSpeed;
+      if (keys['a'] || keys['ArrowLeft']) cameraX -= keyboardSpeed;
+      if (keys['d'] || keys['ArrowRight']) cameraX += keyboardSpeed;
+
+      if (joystickActive) {
+        cameraX += joystickX * joystickSpeed;
+        cameraY += joystickY * joystickSpeed;
+      }
+
+      clampCamera();
+      renderMap();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ── INPUT ─────────────────────────────────────────────────
+    canvas.addEventListener('mousedown', e => {
+      joystickActive = true;
+      positionJoystick(e.clientX, e.clientY);
+      updateJoystick(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('touchstart', e => {
+      joystickActive = true;
+      const t = e.touches[0];
+      positionJoystick(t.clientX, t.clientY);
+      updateJoystick(t.clientX, t.clientY);
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (joystickActive) updateJoystick(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('touchmove', e => {
+      if (joystickActive) updateJoystick(e.touches[0].clientX, e.touches[0].clientY);
+    });
+
+    const stopJoystick = () => {
+      joystickActive = false;
+      joystickBase.style.display = 'none';
+      joystickX = 0;
+      joystickY = 0;
+    };
+    canvas.addEventListener('mouseup', stopJoystick);
+    canvas.addEventListener('touchend', stopJoystick);
+    canvas.addEventListener('mouseleave', stopJoystick);
+
+    // ── START ─────────────────────────────────────────────────
+    map = applyCellularAutomata(initializeMap());
+    gameLoop();
+  </script>
+</body>
+</html>

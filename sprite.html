@@ -22,7 +22,6 @@
   </style>
 </head>
 <body>
-
   <canvas id="sandboxCanvas"></canvas>
 
   <script>
@@ -30,138 +29,180 @@
     const ctx = canvas.getContext('2d');
     const GRID_SIZE = 32;
 
-    // --- SPRITE DEFINITIONS (Object Array) ---
+    // ── SPRITE DEFINITIONS ─────────────────────────────────────
+    // Each sprite's draw(ctx, originX, originY, pixel) mirrors the pixel art
+    // used in dinosurvivor-map-module-vanilla-js.html exactly.
+    //
+    // `pixel` = 1 grid unit here (ctx.scale handles screen sizing).
+    // In the game module pixel = 3 — same shapes, different base unit.
+    //
+    // CHANGED: all draw functions rewritten this session to match the game
+    // module's naming and pixel layout:
+    //   - originX/originY instead of implicit x/y from sprite object
+    //   - centerX/centerY and trunkX/trunkY instead of inline offsets
+    //   - no sine pulsing (removed per user request)
+    //   - glow and hint border commented out (see below)
     const sprites = [
-      // Resource Sprites
+
+      // ── Gatherable Rock ───────────────────────────────────────
       {
-        type: "gatherable_rock",
-        x: 6,
-        y: 18,
-        color: "#7A85A9",
-        veinColor: "#4C4C67",
-        glowColor: "rgba(255, 255, 0, 0.15)",
-        width: 3,
-        height: 3,
-        isResource: true,
-        draw: function(ctx) {
-          // Base rock
-          ctx.fillStyle = this.color;
-          ctx.fillRect(this.x - 1, this.y - 1, this.width, this.height);
-          // Veins
-          ctx.fillStyle = this.veinColor;
-          ctx.fillRect(this.x, this.y, 1, 1);
-          ctx.fillRect(this.x - 1, this.y - 1, 1, 1);
-          ctx.fillRect(this.x + 1, this.y + 1, 1, 1);
-          // Glow
-          ctx.fillStyle = this.glowColor;
-          ctx.fillRect(this.x - 2, this.y - 2, this.width + 2, this.height + 2);
+        type: 'gatherable_rock',
+        gridX: 6,
+        gridY: 18,
+        draw(ctx, originX, originY, pixel) {
+          const centerX = originX + pixel;
+          const centerY = originY + pixel;
+
+          // Base — #7A85A9
+          ctx.fillStyle = '#7A85A9';
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
+
+          // Veins — #4C4C67
+          ctx.fillStyle = '#4C4C67';
+          ctx.fillRect(centerX, centerY, pixel, pixel);
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+          ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+
+          // ── Interactivity hint ────────────────────────────────
+          // CHANGED: was active in original file.
+          // Commented out — enable in Phase 3 when MC proximity
+          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
+          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
+          // ctx.fillRect(centerX - pixel * 2, centerY - pixel * 2, pixel * 5, pixel * 5);
+          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
+          // ctx.lineWidth = 2;
+          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
       },
+
+      // ── Tree ──────────────────────────────────────────────────
       {
-        type: "tree",
-        x: 18,
-        y: 10,
-        trunkColor: "#8B4513",
-        leafColor: "#228B22",
-        glowColor: "rgba(255, 255, 0, 0.15)",
-        width: 5,
-        height: 6,
-        isResource: true,
-        draw: function(ctx) {
-          // Trunk
-          ctx.fillStyle = this.trunkColor;
-          ctx.fillRect(this.x, this.y + 1, 1, 1);
-          // Leaves
-          ctx.fillStyle = this.leafColor;
-          ctx.fillRect(this.x - 2, this.y - 2, this.width, 3);
-          ctx.fillRect(this.x - 1, this.y - 3, 3, 1);
-          // Glow
-          ctx.fillStyle = this.glowColor;
-          ctx.fillRect(this.x - 3, this.y - 4, this.width + 2, this.height + 1);
+        type: 'tree',
+        gridX: 18,
+        gridY: 10,
+        draw(ctx, originX, originY, pixel) {
+          const trunkX = originX + pixel * 2;
+          const trunkY = originY + pixel * 3;
+
+          // Trunk — #8B4513
+          ctx.fillStyle = '#8B4513';
+          ctx.fillRect(trunkX, trunkY + pixel, pixel, pixel);
+
+          // Canopy — #228B22 (wide mid band + top spike)
+          ctx.fillStyle = '#228B22';
+          ctx.fillRect(trunkX - pixel * 2, trunkY - pixel * 2, pixel * 5, pixel * 3);
+          ctx.fillRect(trunkX - pixel, trunkY - pixel * 3, pixel * 3, pixel);
+
+          // ── Interactivity hint ────────────────────────────────
+          // CHANGED: was active in original file.
+          // Commented out — enable in Phase 3 when MC proximity
+          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
+          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
+          // ctx.fillRect(trunkX - pixel * 3, trunkY - pixel * 4, pixel * 7, pixel * 8);
+          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
+          // ctx.lineWidth = 2;
+          // ctx.strokeRect(originX, originY, pixel * 5, pixel * 6);
         }
       },
+
+      // ── Berry Bush ────────────────────────────────────────────
       {
-        type: "berry_bush",
-        x: 24,
-        y: 24,
-        bushColor: "#228B22",
-        berryColor: "#FF0000",
-        glowColor: "rgba(255, 255, 0, 0.15)",
-        width: 3,
-        height: 3,
-        isResource: true,
-        draw: function(ctx) {
-          // Bush
-          ctx.fillStyle = this.bushColor;
-          ctx.fillRect(this.x - 2, this.y - 1, 3, 3);
-          // Berries
-          ctx.fillStyle = this.berryColor;
-          ctx.fillRect(this.x - 1, this.y - 1, 1, 1);
-          ctx.fillRect(this.x - 2, this.y, 1, 1);
-          ctx.fillRect(this.x, this.y + 1, 1, 1);
-          // Glow
-          ctx.fillStyle = this.glowColor;
-          ctx.fillRect(this.x - 3, this.y - 2, this.width + 2, this.height + 2);
+        type: 'berry_bush',
+        gridX: 24,
+        gridY: 24,
+        draw(ctx, originX, originY, pixel) {
+          const centerX = originX + pixel * 2;
+          const centerY = originY + pixel;
+
+          // Bush body — #228B22
+          ctx.fillStyle = '#228B22';
+          ctx.fillRect(centerX - pixel * 2, centerY - pixel, pixel * 3, pixel * 3);
+
+          // Berries — #FF0000 (solid, no pulse)
+          // CHANGED: was rgba(255,0,0, sineValue) — sine pulse removed per user request.
+          ctx.fillStyle = '#FF0000';
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+          ctx.fillRect(centerX - pixel * 2, centerY, pixel, pixel);
+          ctx.fillRect(centerX, centerY + pixel, pixel, pixel);
+
+          // ── Interactivity hint ────────────────────────────────
+          // CHANGED: was active in original file.
+          // Commented out — enable in Phase 3 when MC proximity
+          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
+          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
+          // ctx.fillRect(centerX - pixel * 3, centerY - pixel * 2, pixel * 5, pixel * 5);
+          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
+          // ctx.lineWidth = 2;
+          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
       },
+
+      // ── Metal Node ────────────────────────────────────────────
       {
-        type: "metal_node",
-        x: 12,
-        y: 28,
-        baseColor: "#272735",
-        veinColor: "#4C4C67",
-        sparkleColor: "#FFFFFF",
-        glowColor: "rgba(255, 255, 255, 0.15)",
-        width: 3,
-        height: 3,
-        isResource: true,
-        draw: function(ctx) {
-          // Base
-          ctx.fillStyle = this.baseColor;
-          ctx.fillRect(this.x - 1, this.y - 1, this.width, this.height);
-          // Veins
-          ctx.fillStyle = this.veinColor;
-          ctx.fillRect(this.x, this.y, 1, 1);
-          ctx.fillRect(this.x - 1, this.y - 1, 1, 1);
-          ctx.fillRect(this.x + 1, this.y + 1, 1, 1);
-          // Sparkle
-          ctx.fillStyle = this.sparkleColor;
-          ctx.fillRect(this.x - 1, this.y - 1, 1, 1);
-          // Glow
-          ctx.fillStyle = this.glowColor;
-          ctx.fillRect(this.x - 2, this.y - 2, this.width + 2, this.height + 2);
+        type: 'metal_node',
+        gridX: 12,
+        gridY: 28,
+        draw(ctx, originX, originY, pixel) {
+          const centerX = originX + pixel;
+          const centerY = originY + pixel;
+
+          // Base — #272735
+          ctx.fillStyle = '#272735';
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
+
+          // Veins — #4C4C67
+          ctx.fillStyle = '#4C4C67';
+          ctx.fillRect(centerX, centerY, pixel, pixel);
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+          ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+
+          // Sparkle — static #FFFFFF at top-left pixel of node.
+          // CHANGED: was blinking (Math.floor(time/500)%2), then sine pulsing.
+          // Both removed per user request. Animate via timestamp in game when ready.
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+
+          // ── Interactivity hint ────────────────────────────────
+          // CHANGED: was active in original file.
+          // Commented out — enable in Phase 3 when MC proximity
+          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
+          // ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          // ctx.fillRect(centerX - pixel * 2, centerY - pixel * 2, pixel * 5, pixel * 5);
+          // ctx.strokeStyle = 'rgba(180,180,255,0.9)';
+          // ctx.lineWidth = 2;
+          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
       }];
 
+    // ── RENDER ─────────────────────────────────────────────────
+    // CHANGED: draw() now receives `pixel` as a param (was implicit via
+    // PIXEL_SCALE). pixel=1 grid unit here; ctx.scale(pixelScale) handles
+    // the rest. Keeps the signature consistent with the game module
+    // where pixel=3 is the base unit.
     function render() {
       const minDimension = Math.min(window.innerWidth, window.innerHeight);
       const size = minDimension > 0 ? Math.floor(minDimension * 0.95): 800;
       canvas.width = size;
       canvas.height = size;
-      const PIXEL_SCALE = canvas.width / GRID_SIZE;
+      const pixelScale = canvas.width / GRID_SIZE;
 
-      // Clear canvas
       ctx.fillStyle = '#151515';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw grid
+      // Grid lines
       ctx.strokeStyle = '#222';
       ctx.lineWidth = 1;
       for (let i = 0; i <= GRID_SIZE; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * PIXEL_SCALE, 0);
-        ctx.lineTo(i * PIXEL_SCALE, canvas.height);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i * PIXEL_SCALE);
-        ctx.lineTo(canvas.width, i * PIXEL_SCALE);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i * pixelScale, 0); ctx.lineTo(i * pixelScale, canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i * pixelScale); ctx.lineTo(canvas.width, i * pixelScale); ctx.stroke();
       }
 
-      // Draw all sprites
+      // Draw all sprites inside scaled context
       ctx.save();
-      ctx.scale(PIXEL_SCALE, PIXEL_SCALE);
-      sprites.forEach(sprite => sprite.draw(ctx));
+      ctx.scale(pixelScale, pixelScale);
+      for (const sprite of sprites) {
+        sprite.draw(ctx, sprite.gridX, sprite.gridY, 1);
+      }
       ctx.restore();
     }
 

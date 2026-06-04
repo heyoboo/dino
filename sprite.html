@@ -172,31 +172,6 @@
           // ctx.lineWidth = 2;
           // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
-      },
-
-      // ── Rex ───────────────────────────────────────────────────
-      {
-        type: 'rex',
-        gridX: 8,
-        gridY: 8,
-        draw(ctx, originX, originY, pixel) {
-          // Body — main brown rectangle
-          ctx.fillStyle = '#8B4513';
-          ctx.fillRect(originX, originY, pixel * 7, pixel * 4);
-
-          // Head — larger, darker rectangle at front
-          ctx.fillStyle = '#654321';
-          ctx.fillRect(originX + pixel * 7, originY + pixel * 0.5, pixel * 5, pixel * 3);
-
-          // Tail — tapering at back
-          ctx.fillRect(originX - pixel * 2, originY + pixel, pixel * 2, pixel * 2);
-
-          // Front leg
-          ctx.fillRect(originX + pixel * 5, originY + pixel * 4, pixel * 1.5, pixel * 2);
-
-          // Back leg
-          ctx.fillRect(originX + pixel * 2, originY + pixel * 4, pixel * 1.5, pixel * 2);
-        }
       }];
 
     // ── RENDER ─────────────────────────────────────────────────

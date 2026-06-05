@@ -25,83 +25,71 @@
   <canvas id="sandboxCanvas"></canvas>
 
   <script>
+    /**
+    * =========================================================================
+    * CANVAS DRAWING API CHEAT SHEET
+    * =========================================================================
+    * * 1. COLORS & STYLES
+    * ctx.fillStyle = "#hex";         // Set inside color (solid or rgba)
+    * ctx.strokeStyle = "#hex";       // Set outline color
+    * ctx.lineWidth = number;         // Set outline thickness
+    * * * 2. FAST RECTANGLES (What you are using for pure pixel art)
+    * ctx.fillRect(x, y, w, h);       // Draw a solid square/rectangle
+    * ctx.strokeRect(x, y, w, h);     // Draw an outline square/rectangle
+    * * * 3. CUSTOM PATHS (Diamonds, Polygons, Lines)
+    * ctx.beginPath();                // 1. Start a new custom shape
+    * ctx.moveTo(x, y);               // 2. Move pen to start point (no draw)
+    * ctx.lineTo(x, y);               // 3. Draw a line to the next point
+    * ctx.closePath();                // 4. Snap line back to the start
+    * ctx.fill();                     // 5. Fill the shape with color
+    * ctx.stroke();                   // 6. Draw the outline of the shape
+    * * * 4. MATRIX STATES
+    * ctx.save();                     // Save current grid scale/colors
+    * ctx.restore();                  // Undo back to the saved state
+    * =========================================================================
+    */
+
     const canvas = document.getElementById('sandboxCanvas');
     const ctx = canvas.getContext('2d');
     const GRID_SIZE = 32;
 
     // ── SPRITE DEFINITIONS ─────────────────────────────────────
-    // Each sprite's draw(ctx, originX, originY, pixel) mirrors the pixel art
-    // used in dinosurvivor-map-module-vanilla-js.html exactly.
-    //
-    // `pixel` = 1 grid unit here (ctx.scale handles screen sizing).
-    // In the game module pixel = 3 — same shapes, different base unit.
-    //
-    // CHANGED: all draw functions rewritten this session to match the game
-    // module's naming and pixel layout:
-    //   - originX/originY instead of implicit x/y from sprite object
-    //   - centerX/centerY and trunkX/trunkY instead of inline offsets
-    //   - no sine pulsing (removed per user request)
-    //   - glow and hint border commented out (see below)
     const sprites = [
 
       // ── Gatherable Rock ───────────────────────────────────────
       {
         type: 'gatherable_rock',
         gridX: 6,
-        gridY: 18,
+        gridY: 20,
         draw(ctx, originX, originY, pixel) {
           const centerX = originX + pixel;
           const centerY = originY + pixel;
 
-          // Base — #7A85A9
           ctx.fillStyle = '#7A85A9';
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
 
-          // Veins — #4C4C67
           ctx.fillStyle = '#4C4C67';
           ctx.fillRect(centerX, centerY, pixel, pixel);
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
           ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
-
-          // ── Interactivity hint ────────────────────────────────
-          // CHANGED: was active in original file.
-          // Commented out — enable in Phase 3 when MC proximity
-          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
-          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
-          // ctx.fillRect(centerX - pixel * 2, centerY - pixel * 2, pixel * 5, pixel * 5);
-          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
-          // ctx.lineWidth = 2;
-          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
       },
 
       // ── Tree ──────────────────────────────────────────────────
       {
         type: 'tree',
-        gridX: 18,
+        gridX: 20,
         gridY: 10,
         draw(ctx, originX, originY, pixel) {
           const trunkX = originX + pixel * 2;
           const trunkY = originY + pixel * 3;
 
-          // Trunk — #8B4513
           ctx.fillStyle = '#8B4513';
           ctx.fillRect(trunkX, trunkY + pixel, pixel, pixel);
 
-          // Canopy — #228B22 (wide mid band + top spike)
           ctx.fillStyle = '#228B22';
           ctx.fillRect(trunkX - pixel * 2, trunkY - pixel * 2, pixel * 5, pixel * 3);
           ctx.fillRect(trunkX - pixel, trunkY - pixel * 3, pixel * 3, pixel);
-
-          // ── Interactivity hint ────────────────────────────────
-          // CHANGED: was active in original file.
-          // Commented out — enable in Phase 3 when MC proximity
-          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
-          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
-          // ctx.fillRect(trunkX - pixel * 3, trunkY - pixel * 4, pixel * 7, pixel * 8);
-          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
-          // ctx.lineWidth = 2;
-          // ctx.strokeRect(originX, originY, pixel * 5, pixel * 6);
         }
       },
 
@@ -114,71 +102,63 @@
           const centerX = originX + pixel * 2;
           const centerY = originY + pixel;
 
-          // Bush body — #228B22
           ctx.fillStyle = '#228B22';
           ctx.fillRect(centerX - pixel * 2, centerY - pixel, pixel * 3, pixel * 3);
 
-          // Berries — #FF0000 (solid, no pulse)
-          // CHANGED: was rgba(255,0,0, sineValue) — sine pulse removed per user request.
           ctx.fillStyle = '#FF0000';
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
           ctx.fillRect(centerX - pixel * 2, centerY, pixel, pixel);
           ctx.fillRect(centerX, centerY + pixel, pixel, pixel);
-
-          // ── Interactivity hint ────────────────────────────────
-          // CHANGED: was active in original file.
-          // Commented out — enable in Phase 3 when MC proximity
-          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
-          // ctx.fillStyle = 'rgba(255, 255, 0, 0.15)';
-          // ctx.fillRect(centerX - pixel * 3, centerY - pixel * 2, pixel * 5, pixel * 5);
-          // ctx.strokeStyle = 'rgba(255,255,180,0.85)';
-          // ctx.lineWidth = 2;
-          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
         }
       },
 
       // ── Metal Node ────────────────────────────────────────────
       {
         type: 'metal_node',
-        gridX: 12,
-        gridY: 28,
+        gridX: 14,
+        gridY: 26,
         draw(ctx, originX, originY, pixel) {
           const centerX = originX + pixel;
           const centerY = originY + pixel;
 
-          // Base — #272735
           ctx.fillStyle = '#272735';
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
 
-          // Veins — #4C4C67
           ctx.fillStyle = '#4C4C67';
           ctx.fillRect(centerX, centerY, pixel, pixel);
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
           ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
 
-          // Sparkle — static #FFFFFF at top-left pixel of node.
-          // CHANGED: was blinking (Math.floor(time/500)%2), then sine pulsing.
-          // Both removed per user request. Animate via timestamp in game when ready.
           ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
-
-          // ── Interactivity hint ────────────────────────────────
-          // CHANGED: was active in original file.
-          // Commented out — enable in Phase 3 when MC proximity
-          // detection is wired up (see dinosurvivor-game-plan-v3.md §3.2).
-          // ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-          // ctx.fillRect(centerX - pixel * 2, centerY - pixel * 2, pixel * 5, pixel * 5);
-          // ctx.strokeStyle = 'rgba(180,180,255,0.9)';
-          // ctx.lineWidth = 2;
-          // ctx.strokeRect(originX, originY, pixel * 3, pixel * 3);
+        }
+      },
+      // ── Your Custom Sketched Rex ──────────────────────────────
+      {
+        type: 'rex',
+        gridX: 4,
+        // Positioned top-left
+        gridY: 4,
+        draw(ctx, originX, originY, pixel) {
+          ctx.fillStyle = '#FFC107';
+          // Head Top
+          ctx.fillRect(originX + pixel * 4, originY, pixel * 5, pixel);
+          // head
+          ctx.fillRect(originX + pixel * 4, originY + pixel, pixel, pixel * 2);
+          ctx.fillRect(originX + pixel * 5, originY + pixel * 2, pixel * 2, pixel * 2);
+          ctx.fillRect(originX + pixel * 6, originY + pixel, pixel * 3, pixel);
+          ctx.fillRect(originX + pixel * 4, originY + pixel * 3, pixel * 5, pixel);
+          ctx.fillRect(originX + pixel * 4, originY + pixel * 4, pixel * 3, pixel);
+          // arm
+          ctx.fillRect(originX + pixel * 3, originY + pixel * 5, pixel * 5, pixel);
+          // belly
+          ctx.fillRect(originX + pixel * 2, originY + pixel * 6, pixel * 5, pixel);
+          // leg
+          ctx.fillRect(originX + pixel, originY + pixel * 7, pixel * 7, pixel);
         }
       }];
 
     // ── RENDER ─────────────────────────────────────────────────
-    // CHANGED: draw() now receives `pixel` as a param (was implicit via
-    // PIXEL_SCALE). pixel=1 grid unit here; ctx.scale(pixelScale) handles
-    // the rest. Keeps the signature consistent with the game module
-    // where pixel=3 is the base unit.
     function render() {
       const minDimension = Math.min(window.innerWidth, window.innerHeight);
       const size = minDimension > 0 ? Math.floor(minDimension * 0.95): 800;

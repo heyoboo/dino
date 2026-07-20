@@ -1,605 +1,766 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>DinoSurvivor Map</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background-color: #000;
-      touch-action: none;
-    }
-    canvas { display: block; }
-    #joystick-base {
-      position: absolute;
-      width: 100px; height: 100px;
-      background-color: rgba(255,255,255,0.15);
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 50%;
-      pointer-events: none;
-      display: none;
-      z-index: 100;
-    }
-    #joystick-stick {
-      position: absolute;
-      width: 40px; height: 40px;
-      background-color: rgba(255,255,255,0.4);
-      border-radius: 50%;
-      pointer-events: none;
-    }
-    #debug {
-      position: absolute;
-      top: 8px; left: 8px;
-      color: rgba(255,255,255,0.6);
-      font: 11px monospace;
-      pointer-events: none;
-      z-index: 200;
-    }
-  </style>
-</head>
-<body>
-  <canvas id="mapCanvas"></canvas>
-  <div id="joystick-base"><div id="joystick-stick"></div></div>
-  <div id="debug"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>DinoSurvivor Map</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+        touch-action: none;
+      }
+      canvas {
+        display: block;
+      }
+      #joystick-base {
+        position: absolute;
+        width: 100px;
+        height: 100px;
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        pointer-events: none;
+        display: none;
+        z-index: 100;
+      }
+      #joystick-stick {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        background-color: rgba(255, 255, 255, 0.4);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      #debug {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        font: 11px monospace;
+        pointer-events: none;
+        z-index: 200;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="mapCanvas"></canvas>
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <div id="debug"></div>
 
-  <script>
-    // ── CONSTANTS ──────────────────────────────────────────────
-    const MAP_SIZE       = 5000;
-    const CHUNK_SIZE     = 200;
-    const CHUNKS_PER_ROW = MAP_SIZE / CHUNK_SIZE;  // 25
-    const TOTAL_CHUNKS   = CHUNKS_PER_ROW ** 2;    // 625
+    <script>
+      // ── CONSTANTS ──────────────────────────────────────────────
+      const MAP_SIZE = 5000;
+      const CHUNK_SIZE = 200;
+      const CHUNKS_PER_ROW = MAP_SIZE / CHUNK_SIZE; // 25
+      const TOTAL_CHUNKS = CHUNKS_PER_ROW ** 2; // 625
 
-    // CHANGED: was 220. bumped to 340 px/sec per user request.
-    const PLAYER_SPEED = 340;
+      // CHANGED: was 220. bumped to 340 px/sec per user request.
+      const PLAYER_SPEED = 340;
 
-    // ADDED: seeded RNG constant so the map is reproducible across reloads.
-    // Change this number to generate a different world.
-    const SEED = 42;
+      // ADDED: seeded RNG constant so the map is reproducible across reloads.
+      // Change this number to generate a different world.
+      const SEED = 42;
 
-    // ── SEEDED RNG (mulberry32) ────────────────────────────────
-    // ADDED: replaces Math.random() throughout map gen + sprite placement.
-    // Guarantees the same map for the same SEED value.
-    function mulberry32(seed) {
-      let s = seed;
-      return function() {
-        s |= 0; s = s + 0x6D2B79F5 | 0;
-        let t = Math.imul(s ^ s >>> 15, 1 | s);
-        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      // ── SEEDED RNG (mulberry32) ────────────────────────────────
+      // ADDED: replaces Math.random() throughout map gen + sprite placement.
+      // Guarantees the same map for the same SEED value.
+      function mulberry32(seed) {
+        let s = seed;
+        return function () {
+          s |= 0;
+          s = (s + 0x6d2b79f5) | 0;
+          let t = Math.imul(s ^ (s >>> 15), 1 | s);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      // ── TERRAIN ────────────────────────────────────────────────
+      const TERRAIN_TYPES = {
+        GRASS: { color: "#34d647" },
+        DIRT: { color: "#b08114" },
+        WATER: { color: "#1E90FF" },
       };
-    }
 
-    // ── TERRAIN ────────────────────────────────────────────────
-    const TERRAIN_TYPES = {
-      GRASS: { color: '#34d647' },
-      DIRT:  { color: '#b08114' },
-      WATER: { color: '#1E90FF' },
-    };
+      // ── DECORATIVE SPRITES ─────────────────────────────────────
+      // These are non-interactive background sprites (colored rects).
+      // FIXED: bush maxSize was 2100 (typo), corrected to 21.
+      const DECOR_SPRITES = [
+        {
+          type: "rock_small",
+          color: "#cad1d57a",
+          minSize: 5,
+          maxSize: 6,
+          maxPerChunk: 0.005,
+          collidable: false,
+          allowedTerrain: ["GRASS", "DIRT", "WATER"],
+        },
+        {
+          type: "rock_large",
+          color: "#888e9ca3",
+          minSize: 10,
+          maxSize: 12,
+          maxPerChunk: 0.01,
+          collidable: true,
+          allowedTerrain: ["GRASS", "DIRT", "WATER"],
+        },
+        {
+          type: "grass_tuft",
+          color: "#00c939bf",
+          minSize: 7,
+          maxSize: 9,
+          maxPerChunk: 0.01,
+          collidable: false,
+          allowedTerrain: ["GRASS"],
+        },
+        {
+          type: "flower",
+          color: "#ff7481ba",
+          minSize: 3,
+          maxSize: 3,
+          maxPerChunk: 0.002,
+          collidable: false,
+          allowedTerrain: ["GRASS", "DIRT"],
+        },
+        {
+          type: "bush",
+          color: "#46a47bab",
+          minSize: 8,
+          maxSize: 21,
+          maxPerChunk: 0.01,
+          collidable: false,
+          allowedTerrain: ["GRASS", "DIRT"],
+        },
+        {
+          type: "tree_stump",
+          color: "#d4a45d94",
+          minSize: 10,
+          maxSize: 12,
+          maxPerChunk: 0.01,
+          collidable: true,
+          allowedTerrain: ["GRASS", "DIRT"],
+        },
+        {
+          type: "water_plant",
+          color: "#0da5bca3",
+          minSize: 5,
+          maxSize: 8,
+          maxPerChunk: 0.01,
+          collidable: false,
+          allowedTerrain: ["WATER"],
+        },
+      ];
 
-    // ── DECORATIVE SPRITES ─────────────────────────────────────
-    // These are non-interactive background sprites (colored rects).
-    // FIXED: bush maxSize was 2100 (typo), corrected to 21.
-    const DECOR_SPRITES = [
-      { type: 'rock_small',  color: '#cad1d57a', minSize: 5,  maxSize: 6,  maxPerChunk: 0.005, collidable: false, allowedTerrain: ['GRASS','DIRT','WATER'] },
-      { type: 'rock_large',  color: '#888e9ca3', minSize: 10, maxSize: 12, maxPerChunk: 0.01,  collidable: true,  allowedTerrain: ['GRASS','DIRT','WATER'] },
-      { type: 'grass_tuft',  color: '#00c939bf', minSize: 7,  maxSize: 9,  maxPerChunk: 0.01,  collidable: false, allowedTerrain: ['GRASS'] },
-      { type: 'flower',      color: '#ff7481ba', minSize: 3,  maxSize: 3,  maxPerChunk: 0.002, collidable: false, allowedTerrain: ['GRASS','DIRT'] },
-      { type: 'bush',        color: '#46a47bab', minSize: 8,  maxSize: 21, maxPerChunk: 0.01,  collidable: false, allowedTerrain: ['GRASS','DIRT'] },
-      { type: 'tree_stump',  color: '#d4a45d94', minSize: 10, maxSize: 12, maxPerChunk: 0.01,  collidable: true,  allowedTerrain: ['GRASS','DIRT'] },
-      { type: 'water_plant', color: '#0da5bca3', minSize: 5,  maxSize: 8,  maxPerChunk: 0.01,  collidable: false, allowedTerrain: ['WATER'] },
-    ];
+      // ── RESOURCE SPRITES ───────────────────────────────────────
+      // ADDED: interactive gatherable sprites for Phase 3 (Resources & Crafting).
+      // Each spec defines placement rules, bounding box for the outline,
+      // and a draw() function that mirrors the pixel art in sprite.html exactly.
+      //
+      // density = probability per eligible chunk (0.0–1.0):
+      //   rock:        0.35 on GRASS+DIRT  → ~131 instances across the map
+      //   tree:        0.25 on GRASS+DIRT  → ~94  instances
+      //   berry bush:  0.30 on GRASS+DIRT  → ~112 instances
+      //   metal node:  0.45 on DIRT only   → ~85  instances (DIRT ~187 chunks)
+      //
+      // CHANGED: density values were originally 0.01–0.03, far too low to ever
+      // appear on screen. Raised to 0.25–0.45.
+      //
+      // CHANGED: placement uses a separate pass per sprite type so metal_node
+      // is not blocked by rock rolling first on the same chunk (old code had
+      // a break that caused this).
+      //
+      // CHANGED: each instance stores a single uniform `scale` (not scaleX/scaleY
+      // independently) to preserve aspect ratio on random sizing.
+      //
+      // CHANGED: draw() is called at (0,0) inside ctx.save/translate/scale/restore
+      // so the pixel art scales cleanly. The proximity outline is drawn afterwards
+      // in screen space using bbox × scale for a pixel-perfect snap.
+      //
+      // CHANGED: all sine pulsing removed from berries and metal sparkle per
+      // user request. Berries are solid #FF0000, sparkle is solid #FFFFFF.
+      //
+      // CHANGED: variable names throughout — sx/sy → screenX/screenY,
+      // P → pixel, x/y → centerX/centerY or trunkX/trunkY, rs → instance, etc.
+      const RESOURCE_SPRITES = [
+        {
+          type: "resource_rock",
+          allowedTerrain: ["GRASS", "DIRT"],
+          density: 0.35,
+          collidable: false,
+          minWidth: 9,
+          minHeight: 9,
+          // CHANGED: was minScale:1/maxScale:1 effectively (original code had
+          // separate maxW/maxH). Now a single uniform scale range.
+          // Range maps to 9–25px wide (min=current, max≈1.5×MC height rule).
+          minScale: 1.0,
+          maxScale: 2.8,
+          // bbox: tight pixel bounds of the drawn shape at scale=1, pixel=3.
+          // Used to snap the proximity outline exactly to sprite edges.
+          bbox: { x: 0, y: 0, w: 9, h: 9 },
+          outlineColor: "rgba(255,255,180,0.85)",
+          // Pixel art matches sprite.html gatherable_rock exactly.
+          draw(ctx, originX, originY) {
+            const pixel = 3;
+            const centerX = originX + pixel;
+            const centerY = originY + pixel;
+            ctx.fillStyle = "#7A85A9";
+            ctx.fillRect(
+              centerX - pixel,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
+            ctx.fillStyle = "#4C4C67";
+            ctx.fillRect(centerX, centerY, pixel, pixel);
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+          },
+        },
+        {
+          type: "resource_tree",
+          allowedTerrain: ["GRASS", "DIRT"],
+          density: 0.25,
+          collidable: true,
+          minWidth: 15,
+          minHeight: 18,
+          // CHANGED: scale range derived from MC height (ph=24).
+          // minScale 1.47 = 1.1×24/18 (tree always ≥1.1× MC height).
+          // maxScale 2.0  = 1.5×24/18 (tree never taller than 1.5× MC height).
+          minScale: 1.47,
+          maxScale: 2.0,
+          // FIXED: bbox was {y:3,h:12} (wrong — missed the top leaf row).
+          // Retraced: top spike row at originY+0, trunk bottom at originY+15.
+          bbox: { x: 0, y: 0, w: 15, h: 15 },
+          outlineColor: "rgba(255,255,180,0.85)",
+          // Pixel art matches sprite.html tree exactly.
+          draw(ctx, originX, originY) {
+            const pixel = 3;
+            const trunkX = originX + pixel * 2;
+            const trunkY = originY + pixel * 3;
+            ctx.fillStyle = "#8B4513";
+            ctx.fillRect(trunkX, trunkY + pixel, pixel, pixel);
+            ctx.fillStyle = "#228B22";
+            ctx.fillRect(
+              trunkX - pixel * 2,
+              trunkY - pixel * 2,
+              pixel * 5,
+              pixel * 3,
+            );
+            ctx.fillRect(trunkX - pixel, trunkY - pixel * 3, pixel * 3, pixel);
+          },
+        },
+        {
+          type: "resource_berry_bush",
+          allowedTerrain: ["GRASS", "DIRT"],
+          density: 0.3,
+          collidable: false,
+          minWidth: 9,
+          minHeight: 9,
+          minScale: 1.0,
+          maxScale: 1.0, // fixed size — bush doesn't scale
+          bbox: { x: 0, y: 0, w: 9, h: 9 },
+          outlineColor: "rgba(255,255,180,0.85)",
+          // CHANGED: berries were rgba(255,0,0, pulsingSineValue).
+          // Removed sine pulse per user request — now solid #FF0000.
+          // Pixel art matches sprite.html berry_bush exactly.
+          draw(ctx, originX, originY) {
+            const pixel = 3;
+            const centerX = originX + pixel * 2;
+            const centerY = originY + pixel;
+            ctx.fillStyle = "#228B22";
+            ctx.fillRect(
+              centerX - pixel * 2,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
+            ctx.fillStyle = "#FF0000";
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX - pixel * 2, centerY, pixel, pixel);
+            ctx.fillRect(centerX, centerY + pixel, pixel, pixel);
+          },
+        },
+        {
+          type: "resource_metal_node",
+          allowedTerrain: ["DIRT"],
+          // CHANGED: was 0.25, raised to 0.45 per user request (more nodes visible).
+          density: 0.45,
+          collidable: true,
+          minWidth: 9,
+          minHeight: 9,
+          minScale: 1.0,
+          maxScale: 2.8,
+          bbox: { x: 0, y: 0, w: 9, h: 9 },
+          outlineColor: "rgba(180,180,255,0.9)",
+          // CHANGED: sparkle was blinking (Math.floor(time/500)%2) then sine pulsing.
+          // Both removed per user request — sparkle is now static #FFFFFF.
+          // Pixel art matches sprite.html metal_node exactly.
+          draw(ctx, originX, originY) {
+            const pixel = 3;
+            const centerX = originX + pixel;
+            const centerY = originY + pixel;
+            ctx.fillStyle = "#272735";
+            ctx.fillRect(
+              centerX - pixel,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
+            ctx.fillStyle = "#4C4C67";
+            ctx.fillRect(centerX, centerY, pixel, pixel);
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+            // Sparkle — static white pixel at top-left of node.
+            // Animate via timestamp when game logic is ready (Phase 3).
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+          },
+        },
+      ];
 
-    // ── RESOURCE SPRITES ───────────────────────────────────────
-    // ADDED: interactive gatherable sprites for Phase 3 (Resources & Crafting).
-    // Each spec defines placement rules, bounding box for the outline,
-    // and a draw() function that mirrors the pixel art in sprite.html exactly.
-    //
-    // density = probability per eligible chunk (0.0–1.0):
-    //   rock:        0.35 on GRASS+DIRT  → ~131 instances across the map
-    //   tree:        0.25 on GRASS+DIRT  → ~94  instances
-    //   berry bush:  0.30 on GRASS+DIRT  → ~112 instances
-    //   metal node:  0.45 on DIRT only   → ~85  instances (DIRT ~187 chunks)
-    //
-    // CHANGED: density values were originally 0.01–0.03, far too low to ever
-    // appear on screen. Raised to 0.25–0.45.
-    //
-    // CHANGED: placement uses a separate pass per sprite type so metal_node
-    // is not blocked by rock rolling first on the same chunk (old code had
-    // a break that caused this).
-    //
-    // CHANGED: each instance stores a single uniform `scale` (not scaleX/scaleY
-    // independently) to preserve aspect ratio on random sizing.
-    //
-    // CHANGED: draw() is called at (0,0) inside ctx.save/translate/scale/restore
-    // so the pixel art scales cleanly. The proximity outline is drawn afterwards
-    // in screen space using bbox × scale for a pixel-perfect snap.
-    //
-    // CHANGED: all sine pulsing removed from berries and metal sparkle per
-    // user request. Berries are solid #FF0000, sparkle is solid #FFFFFF.
-    //
-    // CHANGED: variable names throughout — sx/sy → screenX/screenY,
-    // P → pixel, x/y → centerX/centerY or trunkX/trunkY, rs → instance, etc.
-    const RESOURCE_SPRITES = [
-      {
-        type: 'resource_rock',
-        allowedTerrain: ['GRASS', 'DIRT'],
-        density: 0.35,
-        collidable: false,
-        minWidth: 9, minHeight: 9,
-        // CHANGED: was minScale:1/maxScale:1 effectively (original code had
-        // separate maxW/maxH). Now a single uniform scale range.
-        // Range maps to 9–25px wide (min=current, max≈1.5×MC height rule).
-        minScale: 1.0, maxScale: 2.8,
-        // bbox: tight pixel bounds of the drawn shape at scale=1, pixel=3.
-        // Used to snap the proximity outline exactly to sprite edges.
-        bbox: { x: 0, y: 0, w: 9, h: 9 },
-        outlineColor: 'rgba(255,255,180,0.85)',
-        // Pixel art matches sprite.html gatherable_rock exactly.
-        draw(ctx, originX, originY) {
-          const pixel   = 3;
-          const centerX = originX + pixel;
-          const centerY = originY + pixel;
-          ctx.fillStyle = '#7A85A9';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
-          ctx.fillStyle = '#4C4C67';
-          ctx.fillRect(centerX,         centerY,         pixel,     pixel);
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel,     pixel);
-          ctx.fillRect(centerX + pixel, centerY + pixel, pixel,     pixel);
+      // ── STATE ──────────────────────────────────────────────────
+      let map = [];
+      let cameraX = MAP_SIZE / 2;
+      let cameraY = MAP_SIZE / 2;
+      let lastTime = 0;
+
+      const canvas = document.getElementById("mapCanvas");
+      const ctx = canvas.getContext("2d");
+      const debugEl = document.getElementById("debug");
+
+      const joystickBase = document.getElementById("joystick-base");
+      const joystickStick = document.getElementById("joystick-stick");
+      let joystickActive = false;
+      // CHANGED: was joystickX/joystickY — renamed for clarity.
+      let joystickDeltaX = 0,
+        joystickDeltaY = 0;
+      const joystickRadius = 50;
+      const stickRadius = 20;
+
+      // ── CANVAS RESIZE ──────────────────────────────────────────
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+
+      // ── JOYSTICK ───────────────────────────────────────────────
+      // CHANGED: params renamed from (x,y) to (touchX, touchY) for clarity.
+      function positionJoystick(touchX, touchY) {
+        joystickBase.style.left = `${touchX - joystickRadius}px`;
+        joystickBase.style.top = `${touchY - joystickRadius}px`;
+        joystickBase.style.display = "block";
+        joystickStick.style.left = `${joystickRadius - stickRadius}px`;
+        joystickStick.style.top = `${joystickRadius - stickRadius}px`;
+      }
+
+      function updateJoystick(touchX, touchY) {
+        const rect = joystickBase.getBoundingClientRect();
+        const centerX = rect.left + joystickRadius;
+        const centerY = rect.top + joystickRadius;
+        // CHANGED: was dx/dy — renamed to deltaX/deltaY for clarity.
+        const deltaX = touchX - centerX;
+        const deltaY = touchY - centerY;
+        const dist = Math.hypot(deltaX, deltaY);
+
+        if (dist <= joystickRadius) {
+          joystickDeltaX = deltaX;
+          joystickDeltaY = deltaY;
+        } else {
+          const angle = Math.atan2(deltaY, deltaX);
+          joystickDeltaX = Math.cos(angle) * joystickRadius;
+          joystickDeltaY = Math.sin(angle) * joystickRadius;
         }
-      },
-      {
-        type: 'resource_tree',
-        allowedTerrain: ['GRASS', 'DIRT'],
-        density: 0.25,
-        collidable: true,
-        minWidth: 15, minHeight: 18,
-        // CHANGED: scale range derived from MC height (ph=24).
-        // minScale 1.47 = 1.1×24/18 (tree always ≥1.1× MC height).
-        // maxScale 2.0  = 1.5×24/18 (tree never taller than 1.5× MC height).
-        minScale: 1.47, maxScale: 2.0,
-        // FIXED: bbox was {y:3,h:12} (wrong — missed the top leaf row).
-        // Retraced: top spike row at originY+0, trunk bottom at originY+15.
-        bbox: { x: 0, y: 0, w: 15, h: 15 },
-        outlineColor: 'rgba(255,255,180,0.85)',
-        // Pixel art matches sprite.html tree exactly.
-        draw(ctx, originX, originY) {
-          const pixel  = 3;
-          const trunkX = originX + pixel * 2;
-          const trunkY = originY + pixel * 3;
-          ctx.fillStyle = '#8B4513';
-          ctx.fillRect(trunkX,             trunkY + pixel,     pixel,     pixel);
-          ctx.fillStyle = '#228B22';
-          ctx.fillRect(trunkX - pixel * 2, trunkY - pixel * 2, pixel * 5, pixel * 3);
-          ctx.fillRect(trunkX - pixel,     trunkY - pixel * 3, pixel * 3, pixel);
-        }
-      },
-      {
-        type: 'resource_berry_bush',
-        allowedTerrain: ['GRASS', 'DIRT'],
-        density: 0.30,
-        collidable: false,
-        minWidth: 9, minHeight: 9,
-        minScale: 1.0, maxScale: 1.0, // fixed size — bush doesn't scale
-        bbox: { x: 0, y: 0, w: 9, h: 9 },
-        outlineColor: 'rgba(255,255,180,0.85)',
-        // CHANGED: berries were rgba(255,0,0, pulsingSineValue).
-        // Removed sine pulse per user request — now solid #FF0000.
-        // Pixel art matches sprite.html berry_bush exactly.
-        draw(ctx, originX, originY) {
-          const pixel   = 3;
-          const centerX = originX + pixel * 2;
-          const centerY = originY + pixel;
-          ctx.fillStyle = '#228B22';
-          ctx.fillRect(centerX - pixel * 2, centerY - pixel, pixel * 3, pixel * 3);
-          ctx.fillStyle = '#FF0000';
-          ctx.fillRect(centerX - pixel,     centerY - pixel, pixel,     pixel);
-          ctx.fillRect(centerX - pixel * 2, centerY,         pixel,     pixel);
-          ctx.fillRect(centerX,             centerY + pixel, pixel,     pixel);
-        }
-      },
-      {
-        type: 'resource_metal_node',
-        allowedTerrain: ['DIRT'],
-        // CHANGED: was 0.25, raised to 0.45 per user request (more nodes visible).
-        density: 0.45,
-        collidable: true,
-        minWidth: 9, minHeight: 9,
-        minScale: 1.0, maxScale: 2.8,
-        bbox: { x: 0, y: 0, w: 9, h: 9 },
-        outlineColor: 'rgba(180,180,255,0.9)',
-        // CHANGED: sparkle was blinking (Math.floor(time/500)%2) then sine pulsing.
-        // Both removed per user request — sparkle is now static #FFFFFF.
-        // Pixel art matches sprite.html metal_node exactly.
-        draw(ctx, originX, originY) {
-          const pixel   = 3;
-          const centerX = originX + pixel;
-          const centerY = originY + pixel;
-          ctx.fillStyle = '#272735';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
-          ctx.fillStyle = '#4C4C67';
-          ctx.fillRect(centerX,         centerY,         pixel,     pixel);
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel,     pixel);
-          ctx.fillRect(centerX + pixel, centerY + pixel, pixel,     pixel);
-          // Sparkle — static white pixel at top-left of node.
-          // Animate via timestamp when game logic is ready (Phase 3).
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel,     pixel);
+        joystickStick.style.left = `${joystickRadius + joystickDeltaX - stickRadius}px`;
+        joystickStick.style.top = `${joystickRadius + joystickDeltaY - stickRadius}px`;
+      }
+
+      // ── FISHER-YATES SHUFFLE ───────────────────────────────────
+      // ADDED: used to randomise edge water placement so water distributes
+      // evenly around all 4 map borders instead of flooding top-left.
+      function shuffle(arr, rng) {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
         }
       }
-    ];
 
-    // ── STATE ──────────────────────────────────────────────────
-    let map  = [];
-    let cameraX  = MAP_SIZE / 2;
-    let cameraY  = MAP_SIZE / 2;
-    let lastTime = 0;
+      // ── MAP INIT ───────────────────────────────────────────────
+      function initializeMap(rng) {
+        // CHANGED: was `m` — renamed to `chunks` for clarity.
+        const chunks = Array.from({ length: TOTAL_CHUNKS }, (_, index) => ({
+          type: "GRASS",
+          x: index % CHUNKS_PER_ROW,
+          y: Math.floor(index / CHUNKS_PER_ROW),
+        }));
 
-    const canvas  = document.getElementById('mapCanvas');
-    const ctx     = canvas.getContext('2d');
-    const debugEl = document.getElementById('debug');
+        const edgeDistance = 3;
+        const totalWater = Math.floor(TOTAL_CHUNKS * 0.1);
+        const edgeWaterCount = Math.floor(totalWater * 0.7);
+        let placedWater = 0;
 
-    const joystickBase  = document.getElementById('joystick-base');
-    const joystickStick = document.getElementById('joystick-stick');
-    let joystickActive = false;
-    // CHANGED: was joystickX/joystickY — renamed for clarity.
-    let joystickDeltaX = 0, joystickDeltaY = 0;
-    const joystickRadius = 50;
-    const stickRadius    = 20;
-
-    // ── CANVAS RESIZE ──────────────────────────────────────────
-    function resizeCanvas() {
-      canvas.width  = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    // ── JOYSTICK ───────────────────────────────────────────────
-    // CHANGED: params renamed from (x,y) to (touchX, touchY) for clarity.
-    function positionJoystick(touchX, touchY) {
-      joystickBase.style.left    = `${touchX - joystickRadius}px`;
-      joystickBase.style.top     = `${touchY - joystickRadius}px`;
-      joystickBase.style.display = 'block';
-      joystickStick.style.left   = `${joystickRadius - stickRadius}px`;
-      joystickStick.style.top    = `${joystickRadius - stickRadius}px`;
-    }
-
-    function updateJoystick(touchX, touchY) {
-      const rect    = joystickBase.getBoundingClientRect();
-      const centerX = rect.left + joystickRadius;
-      const centerY = rect.top  + joystickRadius;
-      // CHANGED: was dx/dy — renamed to deltaX/deltaY for clarity.
-      const deltaX  = touchX - centerX;
-      const deltaY  = touchY - centerY;
-      const dist    = Math.hypot(deltaX, deltaY);
-
-      if (dist <= joystickRadius) {
-        joystickDeltaX = deltaX;
-        joystickDeltaY = deltaY;
-      } else {
-        const angle    = Math.atan2(deltaY, deltaX);
-        joystickDeltaX = Math.cos(angle) * joystickRadius;
-        joystickDeltaY = Math.sin(angle) * joystickRadius;
-      }
-      joystickStick.style.left = `${joystickRadius + joystickDeltaX - stickRadius}px`;
-      joystickStick.style.top  = `${joystickRadius + joystickDeltaY - stickRadius}px`;
-    }
-
-    // ── FISHER-YATES SHUFFLE ───────────────────────────────────
-    // ADDED: used to randomise edge water placement so water distributes
-    // evenly around all 4 map borders instead of flooding top-left.
-    function shuffle(arr, rng) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(rng() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-    }
-
-    // ── MAP INIT ───────────────────────────────────────────────
-    function initializeMap(rng) {
-      // CHANGED: was `m` — renamed to `chunks` for clarity.
-      const chunks = Array.from({ length: TOTAL_CHUNKS }, (_, index) => ({
-        type: 'GRASS',
-        x: index % CHUNKS_PER_ROW,
-        y: Math.floor(index / CHUNKS_PER_ROW),
-      }));
-
-      const edgeDistance   = 3;
-      const totalWater     = Math.floor(TOTAL_CHUNKS * 0.1);
-      const edgeWaterCount = Math.floor(totalWater * 0.7);
-      let   placedWater    = 0;
-
-      // FIXED: original code iterated i=0..TOTAL_CHUNKS sequentially, so
-      // edge water always filled top-left border first. Now we collect all
-      // edge indices, shuffle them, then place — distributes evenly.
-      const edgeIndices = [];
-      for (let i = 0; i < TOTAL_CHUNKS; i++) {
-        const { x, y } = chunks[i];
-        if (
-          x < edgeDistance || x >= CHUNKS_PER_ROW - edgeDistance ||
-          y < edgeDistance || y >= CHUNKS_PER_ROW - edgeDistance
-        ) edgeIndices.push(i);
-      }
-      shuffle(edgeIndices, rng);
-      for (const index of edgeIndices) {
-        if (placedWater >= edgeWaterCount) break;
-        if (chunks[index].type === 'GRASS') { chunks[index].type = 'WATER'; placedWater++; }
-      }
-
-      // Remaining 30% of water placed randomly across the map.
-      let attempts = 0;
-      while (placedWater < totalWater && attempts < TOTAL_CHUNKS * 10) {
-        const index = Math.floor(rng() * TOTAL_CHUNKS);
-        if (chunks[index].type === 'GRASS') { chunks[index].type = 'WATER'; placedWater++; }
-        attempts++;
-      }
-
-      // Convert ~30% of remaining grass to dirt before cellular automata.
-      const targetDirtCount = Math.floor(TOTAL_CHUNKS * 0.3);
-      const grassIndices    = [];
-      for (let i = 0; i < TOTAL_CHUNKS; i++) {
-        if (chunks[i].type === 'GRASS') grassIndices.push(i);
-      }
-      shuffle(grassIndices, rng);
-      for (let i = 0; i < targetDirtCount && i < grassIndices.length; i++) {
-        chunks[grassIndices[i]].type = 'DIRT';
-      }
-
-      return chunks;
-    }
-
-    // ── CELLULAR AUTOMATA ──────────────────────────────────────
-    // Runs 3 passes to cluster terrain into natural-looking biomes.
-    // FIXED: original had no threshold — every chunk was reassigned every pass,
-    // making terrain too homogeneous. Now only changes type when majority
-    // neighbour count >= 4, preserving more natural variation.
-    // CHANGED: g/d → grassCount/dirtCount, dx/dy → offsetX/offsetY,
-    // nx/ny → neighborX/neighborY, c → chunk, cur → current.
-    function applyCellularAutomata(mapData) {
-      let current = mapData.map(chunk => ({ ...chunk }));
-      for (let pass = 0; pass < 3; pass++) {
-        const next = current.map(chunk => ({ ...chunk }));
+        // FIXED: original code iterated i=0..TOTAL_CHUNKS sequentially, so
+        // edge water always filled top-left border first. Now we collect all
+        // edge indices, shuffle them, then place — distributes evenly.
+        const edgeIndices = [];
         for (let i = 0; i < TOTAL_CHUNKS; i++) {
-          if (current[i].type === 'WATER') continue;
-          const { x, y } = current[i];
-          let grassCount = 0, dirtCount = 0;
-          for (let offsetY = -1; offsetY <= 1; offsetY++) {
-            for (let offsetX = -1; offsetX <= 1; offsetX++) {
-              if (!offsetX && !offsetY) continue;
-              const neighborX = x + offsetX;
-              const neighborY = y + offsetY;
-              if (neighborX >= 0 && neighborX < CHUNKS_PER_ROW &&
-                  neighborY >= 0 && neighborY < CHUNKS_PER_ROW) {
-                const neighborType = current[neighborY * CHUNKS_PER_ROW + neighborX].type;
-                if      (neighborType === 'GRASS') grassCount++;
-                else if (neighborType === 'DIRT')  dirtCount++;
+          const { x, y } = chunks[i];
+          if (
+            x < edgeDistance ||
+            x >= CHUNKS_PER_ROW - edgeDistance ||
+            y < edgeDistance ||
+            y >= CHUNKS_PER_ROW - edgeDistance
+          )
+            edgeIndices.push(i);
+        }
+        shuffle(edgeIndices, rng);
+        for (const index of edgeIndices) {
+          if (placedWater >= edgeWaterCount) break;
+          if (chunks[index].type === "GRASS") {
+            chunks[index].type = "WATER";
+            placedWater++;
+          }
+        }
+
+        // Remaining 30% of water placed randomly across the map.
+        let attempts = 0;
+        while (placedWater < totalWater && attempts < TOTAL_CHUNKS * 10) {
+          const index = Math.floor(rng() * TOTAL_CHUNKS);
+          if (chunks[index].type === "GRASS") {
+            chunks[index].type = "WATER";
+            placedWater++;
+          }
+          attempts++;
+        }
+
+        // Convert ~30% of remaining grass to dirt before cellular automata.
+        const targetDirtCount = Math.floor(TOTAL_CHUNKS * 0.3);
+        const grassIndices = [];
+        for (let i = 0; i < TOTAL_CHUNKS; i++) {
+          if (chunks[i].type === "GRASS") grassIndices.push(i);
+        }
+        shuffle(grassIndices, rng);
+        for (let i = 0; i < targetDirtCount && i < grassIndices.length; i++) {
+          chunks[grassIndices[i]].type = "DIRT";
+        }
+
+        return chunks;
+      }
+
+      // ── CELLULAR AUTOMATA ──────────────────────────────────────
+      // Runs 3 passes to cluster terrain into natural-looking biomes.
+      // FIXED: original had no threshold — every chunk was reassigned every pass,
+      // making terrain too homogeneous. Now only changes type when majority
+      // neighbour count >= 4, preserving more natural variation.
+      // CHANGED: g/d → grassCount/dirtCount, dx/dy → offsetX/offsetY,
+      // nx/ny → neighborX/neighborY, c → chunk, cur → current.
+      function applyCellularAutomata(mapData) {
+        let current = mapData.map((chunk) => ({ ...chunk }));
+        for (let pass = 0; pass < 3; pass++) {
+          const next = current.map((chunk) => ({ ...chunk }));
+          for (let i = 0; i < TOTAL_CHUNKS; i++) {
+            if (current[i].type === "WATER") continue;
+            const { x, y } = current[i];
+            let grassCount = 0,
+              dirtCount = 0;
+            for (let offsetY = -1; offsetY <= 1; offsetY++) {
+              for (let offsetX = -1; offsetX <= 1; offsetX++) {
+                if (!offsetX && !offsetY) continue;
+                const neighborX = x + offsetX;
+                const neighborY = y + offsetY;
+                if (
+                  neighborX >= 0 &&
+                  neighborX < CHUNKS_PER_ROW &&
+                  neighborY >= 0 &&
+                  neighborY < CHUNKS_PER_ROW
+                ) {
+                  const neighborType =
+                    current[neighborY * CHUNKS_PER_ROW + neighborX].type;
+                  if (neighborType === "GRASS") grassCount++;
+                  else if (neighborType === "DIRT") dirtCount++;
+                }
               }
             }
+            const majorityCount = Math.max(grassCount, dirtCount);
+            if (majorityCount >= 4) {
+              next[i].type = grassCount >= dirtCount ? "GRASS" : "DIRT";
+            }
+            // Below threshold: keep current type — prevents over-clustering.
           }
-          const majorityCount = Math.max(grassCount, dirtCount);
-          if (majorityCount >= 4) {
-            next[i].type = grassCount >= dirtCount ? 'GRASS' : 'DIRT';
-          }
-          // Below threshold: keep current type — prevents over-clustering.
+          current = next;
         }
-        current = next;
-      }
-      return current;
-    }
-
-    // ── RESOURCE SPRITE PLACEMENT ──────────────────────────────
-    // CHANGED: was a single loop with break — metal_node was often blocked
-    // because resource_rock rolled first on DIRT chunks. Now a separate pass
-    // per sprite type so every type gets an independent roll on each chunk.
-    //
-    // CHANGED: chunk.resourceSprite (single object) → chunk.resourceSprites
-    // (array) so a chunk can hold multiple sprite types simultaneously.
-    //
-    // CHANGED: scaleX/scaleY rolling independently → single uniform `scale`
-    // to preserve aspect ratio across random sizes.
-    function placeResourceSprites(mapData, rng) {
-      for (const chunk of mapData) chunk.resourceSprites = [];
-
-      for (const spec of RESOURCE_SPRITES) {
-        for (const chunk of mapData) {
-          if (!spec.allowedTerrain.includes(chunk.type)) continue;
-          if (rng() < spec.density) {
-            const scale        = spec.minScale + rng() * (spec.maxScale - spec.minScale);
-            const scaledWidth  = Math.round(spec.minWidth  * scale);
-            const scaledHeight = Math.round(spec.minHeight * scale);
-            chunk.resourceSprites.push({
-              type:   spec.type,
-              scale,
-              localX: 20 + Math.floor(rng() * Math.max(1, CHUNK_SIZE - scaledWidth  - 40)),
-              localY: 20 + Math.floor(rng() * Math.max(1, CHUNK_SIZE - scaledHeight - 40)),
-            });
-          }
-        }
-      }
-    }
-
-    // ── DECOR SPRITE POSITIONS (lazy, per chunk) ───────────────
-    // Positions generated on first render of each chunk, then cached.
-    // Uses a chunk-local seeded RNG so positions are stable across frames.
-    // CHANGED: was getSpritePositions / chunk.spritePositions.
-    // Renamed to getDecorPositions / chunk.decorPositions to distinguish
-    // from resource sprites.
-    function getDecorPositions(chunk) {
-      if (!chunk.decorPositions) {
-        chunk.decorPositions = [];
-        const chunkRng = mulberry32(SEED ^ (chunk.x * 1000 + chunk.y));
-        for (const spriteType of DECOR_SPRITES) {
-          if (!spriteType.allowedTerrain.includes(chunk.type)) continue;
-          const avgArea    = ((spriteType.minSize + spriteType.maxSize) / 2) ** 2;
-          const maxCount   = Math.floor(spriteType.maxPerChunk * CHUNK_SIZE * CHUNK_SIZE / avgArea);
-          const spawnCount = Math.floor(chunkRng() * (maxCount + 1));
-          for (let i = 0; i < spawnCount; i++) {
-            const size = spriteType.minSize + chunkRng() * (spriteType.maxSize - spriteType.minSize);
-            chunk.decorPositions.push({
-              color:  spriteType.color,
-              size,
-              localX: chunkRng() * (CHUNK_SIZE - size),
-              localY: chunkRng() * (CHUNK_SIZE - size),
-            });
-          }
-        }
-      }
-      return chunk.decorPositions;
-    }
-
-    // ── RENDER ─────────────────────────────────────────────────
-    // CHANGED: renamed inner vars throughout — sx/sy → drawX/drawY,
-    // cx/cy → chunkScreenX/Y, buffer → cullBuffer, etc.
-    // CHANGED: resource sprite render now iterates chunk.resourceSprites[]
-    // (array) instead of chunk.resourceSprite (single object).
-    // CHANGED: proximity outline drawn after ctx.restore() in screen space
-    // using spec.bbox × instance.scale — snaps exactly to sprite pixel edges
-    // regardless of scale. Was previously using hardcoded padding offsets.
-    function renderMap(timestamp) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const cullBuffer = CHUNK_SIZE;
-      const cullLeft   = cameraX - canvas.width  / 2 - cullBuffer;
-      const cullTop    = cameraY - canvas.height / 2 - cullBuffer;
-      const cullRight  = cameraX + canvas.width  / 2 + cullBuffer;
-      const cullBottom = cameraY + canvas.height / 2 + cullBuffer;
-
-      const visibleChunks = [];
-
-      for (const chunk of map) {
-        const chunkWorldX = chunk.x * CHUNK_SIZE;
-        const chunkWorldY = chunk.y * CHUNK_SIZE;
-        if (chunkWorldX + CHUNK_SIZE < cullLeft  || chunkWorldX > cullRight  ||
-            chunkWorldY + CHUNK_SIZE < cullTop   || chunkWorldY > cullBottom) continue;
-
-        visibleChunks.push(chunk);
-
-        const drawX = chunkWorldX - cameraX + canvas.width  / 2;
-        const drawY = chunkWorldY - cameraY + canvas.height / 2;
-
-        // Terrain fill + grid line
-        ctx.fillStyle = TERRAIN_TYPES[chunk.type].color;
-        ctx.fillRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
-
-        // Decorative sprites (non-interactive background detail)
-        for (const decor of getDecorPositions(chunk)) {
-          ctx.fillStyle = decor.color;
-          ctx.fillRect(drawX + decor.localX, drawY + decor.localY, decor.size, decor.size);
-        }
+        return current;
       }
 
-      // Resource sprites drawn on top of decor layer.
-      // draw() is called at (0,0) inside translate+scale so pixel art
-      // scales correctly without modifying the draw functions themselves.
-      for (const chunk of visibleChunks) {
-        if (!chunk.resourceSprites || chunk.resourceSprites.length === 0) continue;
-        for (const instance of chunk.resourceSprites) {
-          const spec = RESOURCE_SPRITES.find(r => r.type === instance.type);
-          if (!spec) continue;
+      // ── RESOURCE SPRITE PLACEMENT ──────────────────────────────
+      // CHANGED: was a single loop with break — metal_node was often blocked
+      // because resource_rock rolled first on DIRT chunks. Now a separate pass
+      // per sprite type so every type gets an independent roll on each chunk.
+      //
+      // CHANGED: chunk.resourceSprite (single object) → chunk.resourceSprites
+      // (array) so a chunk can hold multiple sprite types simultaneously.
+      //
+      // CHANGED: scaleX/scaleY rolling independently → single uniform `scale`
+      // to preserve aspect ratio across random sizes.
+      function placeResourceSprites(mapData, rng) {
+        for (const chunk of mapData) chunk.resourceSprites = [];
 
-          const worldX       = chunk.x * CHUNK_SIZE + instance.localX;
-          const worldY       = chunk.y * CHUNK_SIZE + instance.localY;
-          const screenX      = worldX - cameraX + canvas.width  / 2;
-          const screenY      = worldY - cameraY + canvas.height / 2;
-          const distToPlayer = Math.hypot(worldX - cameraX, worldY - cameraY);
-          const isNearPlayer = distToPlayer < 140;
-
-          ctx.save();
-          ctx.translate(screenX, screenY);
-          ctx.scale(instance.scale, instance.scale);
-          spec.draw(ctx, 0, 0);
-          ctx.restore();
-
-          // Proximity outline — drawn in screen space after restore so
-          // lineWidth stays crisp at 2px regardless of instance.scale.
-          // bbox is the tight pixel boundary of the drawn shape at scale=1.
-          if (isNearPlayer) {
-            const outlineX = screenX + spec.bbox.x * instance.scale;
-            const outlineY = screenY + spec.bbox.y * instance.scale;
-            const outlineW = spec.bbox.w * instance.scale;
-            const outlineH = spec.bbox.h * instance.scale;
-            ctx.strokeStyle = spec.outlineColor;
-            ctx.lineWidth   = 2;
-            ctx.strokeRect(outlineX, outlineY, outlineW, outlineH);
+        for (const spec of RESOURCE_SPRITES) {
+          for (const chunk of mapData) {
+            if (!spec.allowedTerrain.includes(chunk.type)) continue;
+            if (rng() < spec.density) {
+              const scale =
+                spec.minScale + rng() * (spec.maxScale - spec.minScale);
+              const scaledWidth = Math.round(spec.minWidth * scale);
+              const scaledHeight = Math.round(spec.minHeight * scale);
+              chunk.resourceSprites.push({
+                type: spec.type,
+                scale,
+                localX:
+                  20 +
+                  Math.floor(
+                    rng() * Math.max(1, CHUNK_SIZE - scaledWidth - 40),
+                  ),
+                localY:
+                  20 +
+                  Math.floor(
+                    rng() * Math.max(1, CHUNK_SIZE - scaledHeight - 40),
+                  ),
+              });
+            }
           }
         }
       }
 
-      // Player — white rect, always centered on screen.
-      const playerWidth = 16, playerHeight = 24;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(
-        canvas.width  / 2 - playerWidth  / 2,
-        canvas.height / 2 - playerHeight / 2,
-        playerWidth, playerHeight
+      // ── DECOR SPRITE POSITIONS (lazy, per chunk) ───────────────
+      // Positions generated on first render of each chunk, then cached.
+      // Uses a chunk-local seeded RNG so positions are stable across frames.
+      // CHANGED: was getSpritePositions / chunk.spritePositions.
+      // Renamed to getDecorPositions / chunk.decorPositions to distinguish
+      // from resource sprites.
+      function getDecorPositions(chunk) {
+        if (!chunk.decorPositions) {
+          chunk.decorPositions = [];
+          const chunkRng = mulberry32(SEED ^ (chunk.x * 1000 + chunk.y));
+          for (const spriteType of DECOR_SPRITES) {
+            if (!spriteType.allowedTerrain.includes(chunk.type)) continue;
+            const avgArea =
+              ((spriteType.minSize + spriteType.maxSize) / 2) ** 2;
+            const maxCount = Math.floor(
+              (spriteType.maxPerChunk * CHUNK_SIZE * CHUNK_SIZE) / avgArea,
+            );
+            const spawnCount = Math.floor(chunkRng() * (maxCount + 1));
+            for (let i = 0; i < spawnCount; i++) {
+              const size =
+                spriteType.minSize +
+                chunkRng() * (spriteType.maxSize - spriteType.minSize);
+              chunk.decorPositions.push({
+                color: spriteType.color,
+                size,
+                localX: chunkRng() * (CHUNK_SIZE - size),
+                localY: chunkRng() * (CHUNK_SIZE - size),
+              });
+            }
+          }
+        }
+        return chunk.decorPositions;
+      }
+
+      // ── RENDER ─────────────────────────────────────────────────
+      // CHANGED: renamed inner vars throughout — sx/sy → drawX/drawY,
+      // cx/cy → chunkScreenX/Y, buffer → cullBuffer, etc.
+      // CHANGED: resource sprite render now iterates chunk.resourceSprites[]
+      // (array) instead of chunk.resourceSprite (single object).
+      // CHANGED: proximity outline drawn after ctx.restore() in screen space
+      // using spec.bbox × instance.scale — snaps exactly to sprite pixel edges
+      // regardless of scale. Was previously using hardcoded padding offsets.
+      function renderMap(timestamp) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const cullBuffer = CHUNK_SIZE;
+        const cullLeft = cameraX - canvas.width / 2 - cullBuffer;
+        const cullTop = cameraY - canvas.height / 2 - cullBuffer;
+        const cullRight = cameraX + canvas.width / 2 + cullBuffer;
+        const cullBottom = cameraY + canvas.height / 2 + cullBuffer;
+
+        const visibleChunks = [];
+
+        for (const chunk of map) {
+          const chunkWorldX = chunk.x * CHUNK_SIZE;
+          const chunkWorldY = chunk.y * CHUNK_SIZE;
+          if (
+            chunkWorldX + CHUNK_SIZE < cullLeft ||
+            chunkWorldX > cullRight ||
+            chunkWorldY + CHUNK_SIZE < cullTop ||
+            chunkWorldY > cullBottom
+          )
+            continue;
+
+          visibleChunks.push(chunk);
+
+          const drawX = chunkWorldX - cameraX + canvas.width / 2;
+          const drawY = chunkWorldY - cameraY + canvas.height / 2;
+
+          // Terrain fill + grid line
+          ctx.fillStyle = TERRAIN_TYPES[chunk.type].color;
+          ctx.fillRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
+          ctx.strokeStyle = "rgba(0,0,0,0.15)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
+
+          // Decorative sprites (non-interactive background detail)
+          for (const decor of getDecorPositions(chunk)) {
+            ctx.fillStyle = decor.color;
+            ctx.fillRect(
+              drawX + decor.localX,
+              drawY + decor.localY,
+              decor.size,
+              decor.size,
+            );
+          }
+        }
+
+        // Resource sprites drawn on top of decor layer.
+        // draw() is called at (0,0) inside translate+scale so pixel art
+        // scales correctly without modifying the draw functions themselves.
+        for (const chunk of visibleChunks) {
+          if (!chunk.resourceSprites || chunk.resourceSprites.length === 0)
+            continue;
+          for (const instance of chunk.resourceSprites) {
+            const spec = RESOURCE_SPRITES.find((r) => r.type === instance.type);
+            if (!spec) continue;
+
+            const worldX = chunk.x * CHUNK_SIZE + instance.localX;
+            const worldY = chunk.y * CHUNK_SIZE + instance.localY;
+            const screenX = worldX - cameraX + canvas.width / 2;
+            const screenY = worldY - cameraY + canvas.height / 2;
+            const distToPlayer = Math.hypot(worldX - cameraX, worldY - cameraY);
+            const isNearPlayer = distToPlayer < 140;
+
+            ctx.save();
+            ctx.translate(screenX, screenY);
+            ctx.scale(instance.scale, instance.scale);
+            spec.draw(ctx, 0, 0);
+            ctx.restore();
+
+            // Proximity outline — drawn in screen space after restore so
+            // lineWidth stays crisp at 2px regardless of instance.scale.
+            // bbox is the tight pixel boundary of the drawn shape at scale=1.
+            if (isNearPlayer) {
+              const outlineX = screenX + spec.bbox.x * instance.scale;
+              const outlineY = screenY + spec.bbox.y * instance.scale;
+              const outlineW = spec.bbox.w * instance.scale;
+              const outlineH = spec.bbox.h * instance.scale;
+              ctx.strokeStyle = spec.outlineColor;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(outlineX, outlineY, outlineW, outlineH);
+            }
+          }
+        }
+
+        // Player — white rect, always centered on screen.
+        const playerWidth = 16,
+          playerHeight = 24;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          canvas.width / 2 - playerWidth / 2,
+          canvas.height / 2 - playerHeight / 2,
+          playerWidth,
+          playerHeight,
+        );
+
+        debugEl.textContent =
+          `cam (${Math.round(cameraX)}, ${Math.round(cameraY)})  |  ` +
+          `visible: ${visibleChunks.length} chunks  |  seed: ${SEED}`;
+      }
+
+      // ── INPUT ──────────────────────────────────────────────────
+      const keys = {};
+      window.addEventListener("keydown", (e) => (keys[e.key] = true));
+      window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+      canvas.addEventListener("mousedown", (e) => {
+        joystickActive = true;
+        positionJoystick(e.clientX, e.clientY);
+        updateJoystick(e.clientX, e.clientY);
+      });
+      canvas.addEventListener(
+        "touchstart",
+        (e) => {
+          joystickActive = true;
+          const touch = e.touches[0];
+          positionJoystick(touch.clientX, touch.clientY);
+          updateJoystick(touch.clientX, touch.clientY);
+        },
+        { passive: true },
+      );
+      canvas.addEventListener("mousemove", (e) => {
+        if (joystickActive) updateJoystick(e.clientX, e.clientY);
+      });
+      canvas.addEventListener(
+        "touchmove",
+        (e) => {
+          if (joystickActive)
+            updateJoystick(e.touches[0].clientX, e.touches[0].clientY);
+        },
+        { passive: true },
       );
 
-      debugEl.textContent =
-        `cam (${Math.round(cameraX)}, ${Math.round(cameraY)})  |  ` +
-        `visible: ${visibleChunks.length} chunks  |  seed: ${SEED}`;
-    }
+      const stopJoystick = () => {
+        joystickActive = false;
+        joystickBase.style.display = "none";
+        joystickDeltaX = 0;
+        joystickDeltaY = 0;
+      };
+      canvas.addEventListener("mouseup", stopJoystick);
+      canvas.addEventListener("touchend", stopJoystick);
+      canvas.addEventListener("mouseleave", stopJoystick);
 
-    // ── INPUT ──────────────────────────────────────────────────
-    const keys = {};
-    window.addEventListener('keydown', e => keys[e.key] = true);
-    window.addEventListener('keyup',   e => keys[e.key] = false);
-
-    canvas.addEventListener('mousedown',  e => { joystickActive = true; positionJoystick(e.clientX, e.clientY); updateJoystick(e.clientX, e.clientY); });
-    canvas.addEventListener('touchstart', e => { joystickActive = true; const touch = e.touches[0]; positionJoystick(touch.clientX, touch.clientY); updateJoystick(touch.clientX, touch.clientY); }, { passive: true });
-    canvas.addEventListener('mousemove',  e => { if (joystickActive) updateJoystick(e.clientX, e.clientY); });
-    canvas.addEventListener('touchmove',  e => { if (joystickActive) updateJoystick(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-
-    const stopJoystick = () => {
-      joystickActive = false;
-      joystickBase.style.display = 'none';
-      joystickDeltaX = 0;
-      joystickDeltaY = 0;
-    };
-    canvas.addEventListener('mouseup',    stopJoystick);
-    canvas.addEventListener('touchend',   stopJoystick);
-    canvas.addEventListener('mouseleave', stopJoystick);
-
-    // ── CAMERA CLAMP ───────────────────────────────────────────
-    function clampCamera() {
-      cameraX = Math.max(0, Math.min(MAP_SIZE, cameraX));
-      cameraY = Math.max(0, Math.min(MAP_SIZE, cameraY));
-    }
-
-    // ── GAME LOOP ───────────────────────────────────────────────
-    // CHANGED: was raw pixel jumps per frame (keyboardSpeed=20, joystickSpeed=0.5).
-    // Now delta-time corrected: movement = PLAYER_SPEED × dt (seconds).
-    // Joystick input normalized to 0..1 before multiplying so both
-    // keyboard and joystick produce the same max speed (340 px/sec).
-    // dt capped at 100ms to prevent large jumps after tab switching.
-    function gameLoop(timestamp) {
-      const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
-      lastTime = timestamp;
-
-      if (keys['w'] || keys['ArrowUp'])    cameraY -= PLAYER_SPEED * dt;
-      if (keys['s'] || keys['ArrowDown'])  cameraY += PLAYER_SPEED * dt;
-      if (keys['a'] || keys['ArrowLeft'])  cameraX -= PLAYER_SPEED * dt;
-      if (keys['d'] || keys['ArrowRight']) cameraX += PLAYER_SPEED * dt;
-
-      if (joystickActive) {
-        cameraX += (joystickDeltaX / joystickRadius) * PLAYER_SPEED * dt;
-        cameraY += (joystickDeltaY / joystickRadius) * PLAYER_SPEED * dt;
+      // ── CAMERA CLAMP ───────────────────────────────────────────
+      function clampCamera() {
+        cameraX = Math.max(0, Math.min(MAP_SIZE, cameraX));
+        cameraY = Math.max(0, Math.min(MAP_SIZE, cameraY));
       }
 
-      clampCamera();
-      renderMap(timestamp);
-      requestAnimationFrame(gameLoop);
-    }
+      // ── GAME LOOP ───────────────────────────────────────────────
+      // CHANGED: was raw pixel jumps per frame (keyboardSpeed=20, joystickSpeed=0.5).
+      // Now delta-time corrected: movement = PLAYER_SPEED × dt (seconds).
+      // Joystick input normalized to 0..1 before multiplying so both
+      // keyboard and joystick produce the same max speed (340 px/sec).
+      // dt capped at 100ms to prevent large jumps after tab switching.
+      function gameLoop(timestamp) {
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+        lastTime = timestamp;
 
-    // ── START ──────────────────────────────────────────────────
-    const rng = mulberry32(SEED);
-    map = applyCellularAutomata(initializeMap(rng));
-    placeResourceSprites(map, rng);
-    requestAnimationFrame(ts => { lastTime = ts; gameLoop(ts); });
-  </script>
-</body>
+        if (keys["w"] || keys["ArrowUp"]) cameraY -= PLAYER_SPEED * dt;
+        if (keys["s"] || keys["ArrowDown"]) cameraY += PLAYER_SPEED * dt;
+        if (keys["a"] || keys["ArrowLeft"]) cameraX -= PLAYER_SPEED * dt;
+        if (keys["d"] || keys["ArrowRight"]) cameraX += PLAYER_SPEED * dt;
+
+        if (joystickActive) {
+          cameraX += (joystickDeltaX / joystickRadius) * PLAYER_SPEED * dt;
+          cameraY += (joystickDeltaY / joystickRadius) * PLAYER_SPEED * dt;
+        }
+
+        clampCamera();
+        renderMap(timestamp);
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ── START ──────────────────────────────────────────────────
+      const rng = mulberry32(SEED);
+      map = applyCellularAutomata(initializeMap(rng));
+      placeResourceSprites(map, rng);
+      requestAnimationFrame((ts) => {
+        lastTime = ts;
+        gameLoop(ts);
+      });
+    </script>
+  </body>
 </html>

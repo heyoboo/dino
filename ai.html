@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>DinoSurvivor - Dino AI System</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+        touch-action: none;
+      }
+      canvas {
+        display: block;
+      }
+      #joystick-base {
+        position: absolute;
+        width: 100px;
+        height: 100px;
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        pointer-events: none;
+        display: none;
+        z-index: 100;
+      }
+      #joystick-stick {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        background-color: rgba(255, 255, 255, 0.4);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      #debug {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        font: 11px monospace;
+        pointer-events: none;
+        z-index: 200;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="mapCanvas"></canvas>
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <div id="debug"></div>
+
+    <script>
+      // ── CONSTANTS ──────────────────────────────────────────────
+      const MAP_SIZE = 5000;
+      const CHUNK_SIZE = 200;
+      const CHUNKS_PER_ROW = MAP_SIZE / CHUNK_SIZE;
+      const TOTAL_CHUNKS = CHUNKS_PER_ROW ** 2;
+      const PLAYER_SPEED = 340;
+      const PLAYER_WIDTH = 16;
+      const SEED = 42;
+      const COLLISION_SLIDING_THRESHOLD = 20; // Pixels per frame
+
+      // ADDED: Initial chunk for dino movement limit
+      let INIT_CHUNK_X, INIT_CHUNK_Y;
+
+      // ── SEEDED RNG (mulberry32) ────────────────────────────────
+      function mulberry32(seed) {
+        let s = seed;
+        return function () {
+          s |= 0;
+          s = (s + 0x6d2b79f5) | 0;
+          let t = Math.imul(s ^ (s >>> 15), 1 | s);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      // ── TERRAIN ────────────────────────────────────────────────
+      const TERRAIN_TYPES = {
+        GRASS: { color: "#34d647" },
+        DIRT: { color: "#b08114" },
+        WATER: { color: "#1E90FF" },
+      };
+
+      // ── DINO TYPES ─────────────────────────────────────────────
+      const DINO_TYPES = [
+        {
+          type: "rex",
+          color: "#FF0000",
+          minSize: 30,
+          maxSize: 40,
+          allowedTerrain: ["GRASS", "DIRT"],
+          normalSpeed: 0.3 * PLAYER_SPEED,
+          runSpeed: PLAYER_SPEED,
+        },
+        {
+          type: "raptor",
+          color: "#0000FF",
+          minSize: 20,
+          maxSize: 30,
+          allowedTerrain: ["GRASS", "DIRT"],
+          normalSpeed: 0.3 * PLAYER_SPEED,
+          runSpeed: PLAYER_SPEED,
+        },
+        {
+          type: "dodo",
+          color: "#FFFF00",
+          minSize: PLAYER_WIDTH,
+          maxSize: PLAYER_WIDTH,
+          allowedTerrain: ["GRASS", "DIRT"],
+          normalSpeed: 0.1 * PLAYER_SPEED,
+          runSpeed: 0.2 * PLAYER_SPEED,
+        },
+      ];
+
+      // ── OBSTACLES ─────────────────────────────────────────────
+      const OBSTACLE_TYPES = [
+        {
+          type: "rock",
+          color: "#808080",
+          minSize: 30,
+          maxSize: 50,
+          allowedTerrain: ["GRASS", "DIRT", "WATER"],
+        },
+      ];
+
+      // ── STATE ──────────────────────────────────────────────────
+      let map = [];
+      let cameraX = MAP_SIZE / 2;
+      let cameraY = MAP_SIZE / 2;
+      let lastTime = 0;
+      let rockWorldX, rockWorldY, rockSize;
+      let worldRng;
+
+      const canvas = document.getElementById("mapCanvas");
+      const ctx = canvas.getContext("2d");
+      const debugEl = document.getElementById("debug");
+
+      const joystickBase = document.getElementById("joystick-base");
+      const joystickStick = document.getElementById("joystick-stick");
+      let joystickActive = false;
+      let joystickDeltaX = 0,
+        joystickDeltaY = 0;
+      const joystickRadius = 50;
+      const stickRadius = 20;
+
+      // ── CANVAS RESIZE ──────────────────────────────────────────
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+
+      // ── JOYSTICK ───────────────────────────────────────────────
+      function positionJoystick(touchX, touchY) {
+        joystickBase.style.left = `${touchX - joystickRadius}px`;
+        joystickBase.style.top = `${touchY - joystickRadius}px`;
+        joystickBase.style.display = "block";
+        joystickStick.style.left = `${joystickRadius - stickRadius}px`;
+        joystickStick.style.top = `${joystickRadius - stickRadius}px`;
+      }
+
+      function updateJoystick(touchX, touchY) {
+        const rect = joystickBase.getBoundingClientRect();
+        const centerX = rect.left + joystickRadius;
+        const centerY = rect.top + joystickRadius;
+        const deltaX = touchX - centerX;
+        const deltaY = touchY - centerY;
+        const dist = Math.hypot(deltaX, deltaY);
+
+        if (dist <= joystickRadius) {
+          joystickDeltaX = deltaX;
+          joystickDeltaY = deltaY;
+        } else {
+          const angle = Math.atan2(deltaY, deltaX);
+          joystickDeltaX = Math.cos(angle) * joystickRadius;
+          joystickDeltaY = Math.sin(angle) * joystickRadius;
+        }
+        joystickStick.style.left = `${joystickRadius + joystickDeltaX - stickRadius}px`;
+        joystickStick.style.top = `${joystickRadius + joystickDeltaY - stickRadius}px`;
+      }
+
+      // ── FISHER-YATES SHUFFLE ───────────────────────────────────
+      function shuffle(arr, rng) {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+      }
+
+      // ── MAP INIT ───────────────────────────────────────────────
+      function initializeMap(rng) {
+        const chunks = Array.from({ length: TOTAL_CHUNKS }, (_, index) => ({
+          type: "GRASS",
+          x: index % CHUNKS_PER_ROW,
+          y: Math.floor(index / CHUNKS_PER_ROW),
+          dinos: [],
+          obstacles: [],
+        }));
+
+        const edgeDistance = 3;
+        const totalWater = Math.floor(TOTAL_CHUNKS * 0.1);
+        const edgeWaterCount = Math.floor(totalWater * 0.7);
+        let placedWater = 0;
+
+        const edgeIndices = [];
+        for (let i = 0; i < TOTAL_CHUNKS; i++) {
+          const { x, y } = chunks[i];
+          if (
+            x < edgeDistance ||
+            x >= CHUNKS_PER_ROW - edgeDistance ||
+            y < edgeDistance ||
+            y >= CHUNKS_PER_ROW - edgeDistance
+          )
+            edgeIndices.push(i);
+        }
+        shuffle(edgeIndices, rng);
+        for (const index of edgeIndices) {
+          if (placedWater >= edgeWaterCount) break;
+          if (chunks[index].type === "GRASS") {
+            chunks[index].type = "WATER";
+            placedWater++;
+          }
+        }
+
+        let attempts = 0;
+        while (placedWater < totalWater && attempts < TOTAL_CHUNKS * 10) {
+          const index = Math.floor(rng() * TOTAL_CHUNKS);
+          if (chunks[index].type === "GRASS") {
+            chunks[index].type = "WATER";
+            placedWater++;
+          }
+          attempts++;
+        }
+
+        const targetDirtCount = Math.floor(TOTAL_CHUNKS * 0.3);
+        const grassIndices = [];
+        for (let i = 0; i < TOTAL_CHUNKS; i++) {
+          if (chunks[i].type === "GRASS") grassIndices.push(i);
+        }
+        shuffle(grassIndices, rng);
+        for (let i = 0; i < targetDirtCount && i < grassIndices.length; i++) {
+          chunks[grassIndices[i]].type = "DIRT";
+        }
+
+        return chunks;
+      }
+
+      // ── CELLULAR AUTOMATA ──────────────────────────────────────
+      function applyCellularAutomata(mapData) {
+        let current = mapData.map((chunk) => ({ ...chunk }));
+        for (let pass = 0; pass < 3; pass++) {
+          const next = current.map((chunk) => ({ ...chunk }));
+          for (let i = 0; i < TOTAL_CHUNKS; i++) {
+            if (current[i].type === "WATER") continue;
+            const { x, y } = current[i];
+            let grassCount = 0,
+              dirtCount = 0;
+            for (let offsetY = -1; offsetY <= 1; offsetY++) {
+              for (let offsetX = -1; offsetX <= 1; offsetX++) {
+                if (!offsetX && !offsetY) continue;
+                const neighborX = x + offsetX;
+                const neighborY = y + offsetY;
+                if (
+                  neighborX >= 0 &&
+                  neighborX < CHUNKS_PER_ROW &&
+                  neighborY >= 0 &&
+                  neighborY < CHUNKS_PER_ROW
+                ) {
+                  const neighborType =
+                    current[neighborY * CHUNKS_PER_ROW + neighborX].type;
+                  if (neighborType === "GRASS") grassCount++;
+                  else if (neighborType === "DIRT") dirtCount++;
+                }
+              }
+            }
+            const majorityCount = Math.max(grassCount, dirtCount);
+            if (majorityCount >= 4) {
+              next[i].type = grassCount >= dirtCount ? "GRASS" : "DIRT";
+            }
+          }
+          current = next;
+        }
+        return current;
+      }
+
+      // ── COLLISION DETECTION ───────────────────────────────────
+      function checkRockCollision(newCameraX, newCameraY) {
+        const playerLeft = newCameraX - 8;
+        const playerRight = newCameraX + 8;
+        const playerTop = newCameraY - 12;
+        const playerBottom = newCameraY + 12;
+
+        const rockLeft = rockWorldX;
+        const rockRight = rockWorldX + rockSize;
+        const rockTop = rockWorldY;
+        const rockBottom = rockWorldY + rockSize;
+
+        return !(
+          playerRight <= rockLeft ||
+          playerLeft >= rockRight ||
+          playerBottom <= rockTop ||
+          playerTop >= rockBottom
+        );
+      }
+
+      // Dino collision with rock
+      function checkDinoRockCollision(dino, chunk) {
+        const dinoLeft = chunk.x * CHUNK_SIZE + dino.localX;
+        const dinoRight = dinoLeft + dino.size;
+        const dinoTop = chunk.y * CHUNK_SIZE + dino.localY;
+        const dinoBottom = dinoTop + dino.size;
+
+        const rockLeft = rockWorldX;
+        const rockRight = rockWorldX + rockSize;
+        const rockTop = rockWorldY;
+        const rockBottom = rockWorldY + rockSize;
+
+        return !(
+          dinoRight <= rockLeft ||
+          dinoLeft >= rockRight ||
+          dinoBottom <= rockTop ||
+          dinoTop >= rockBottom
+        );
+      }
+
+      // Dino collision with MC
+      function checkDinoMCCollision(dino, chunk) {
+        const dinoLeft = chunk.x * CHUNK_SIZE + dino.localX;
+        const dinoRight = dinoLeft + dino.size;
+        const dinoTop = chunk.y * CHUNK_SIZE + dino.localY;
+        const dinoBottom = dinoTop + dino.size;
+
+        const mcLeft = cameraX - 8;
+        const mcRight = cameraX + 8;
+        const mcTop = cameraY - 12;
+        const mcBottom = cameraY + 12;
+
+        return !(
+          dinoRight <= mcLeft ||
+          dinoLeft >= mcRight ||
+          dinoBottom <= mcTop ||
+          dinoTop >= mcBottom
+        );
+      }
+
+      // Dino collision with other dinos
+      function checkDinoDinoCollision(dino, currentChunk) {
+        const dinoLeft = currentChunk.x * CHUNK_SIZE + dino.localX;
+        const dinoRight = dinoLeft + dino.size;
+        const dinoTop = currentChunk.y * CHUNK_SIZE + dino.localY;
+        const dinoBottom = dinoTop + dino.size;
+
+        for (const chunk of map) {
+          for (const otherDino of chunk.dinos) {
+            if (otherDino === dino) continue;
+
+            const otherLeft = chunk.x * CHUNK_SIZE + otherDino.localX;
+            const otherRight = otherLeft + otherDino.size;
+            const otherTop = chunk.y * CHUNK_SIZE + otherDino.localY;
+            const otherBottom = otherTop + otherDino.size;
+
+            if (!(
+              dinoRight <= otherLeft ||
+              dinoLeft >= otherRight ||
+              dinoBottom <= otherTop ||
+              dinoTop >= otherBottom
+            )) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      // MC collision with dino
+      function checkMCDinoCollision(newCameraX, newCameraY) {
+        const mcLeft = newCameraX - 8;
+        const mcRight = newCameraX + 8;
+        const mcTop = newCameraY - 12;
+        const mcBottom = newCameraY + 12;
+
+        for (const chunk of map) {
+          for (const dino of chunk.dinos) {
+            const dinoLeft = chunk.x * CHUNK_SIZE + dino.localX;
+            const dinoRight = dinoLeft + dino.size;
+            const dinoTop = chunk.y * CHUNK_SIZE + dino.localY;
+            const dinoBottom = dinoTop + dino.size;
+
+            if (!(
+              mcRight <= dinoLeft ||
+              mcLeft >= dinoRight ||
+              mcBottom <= dinoTop ||
+              mcTop >= dinoBottom
+            )) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      // ── COLLISION RESOLUTION ───────────────────────────────────
+      function resolveRockCollision() {
+        const playerLeft = cameraX - 8;
+        const playerRight = cameraX + 8;
+        const playerTop = cameraY - 12;
+        const playerBottom = cameraY + 12;
+
+        if (playerRight <= rockWorldX) {
+          cameraX = rockWorldX - 8;
+        } else if (playerLeft >= rockWorldX + rockSize) {
+          cameraX = rockWorldX + rockSize + 8;
+        } else if (playerBottom <= rockWorldY) {
+          cameraY = rockWorldY - 12;
+        } else if (playerTop >= rockWorldY + rockSize) {
+          cameraY = rockWorldY + rockSize + 12;
+        } else {
+          const overlapLeft = playerRight - rockWorldX;
+          const overlapRight = rockWorldX + rockSize - playerLeft;
+          const overlapTop = playerBottom - rockWorldY;
+          const overlapBottom = rockWorldY + rockSize - playerTop;
+
+          if (
+            Math.min(overlapLeft, overlapRight) <
+            Math.min(overlapTop, overlapBottom)
+          ) {
+            if (overlapLeft < overlapRight) {
+              cameraX -= overlapLeft;
+            } else {
+              cameraX += overlapRight;
+            }
+          } else {
+            if (overlapTop < overlapBottom) {
+              cameraY -= overlapTop;
+            } else {
+              cameraY += overlapBottom;
+            }
+          }
+        }
+      }
+
+      // MC collision with dino - HYBRID: sliding for slow, precise for fast
+      function resolveMCDinoCollision(oldCameraX, oldCameraY, moveX, moveY) {
+        const movementMagnitude = Math.hypot(moveX, moveY);
+
+        if (movementMagnitude < COLLISION_SLIDING_THRESHOLD) {
+          // Sliding behavior for slow movement
+          cameraX = oldCameraX + moveX;
+          cameraY = oldCameraY;
+          if (!checkMCDinoCollision(cameraX, cameraY)) return;
+
+          cameraX = oldCameraX;
+          cameraY = oldCameraY + moveY;
+          if (!checkMCDinoCollision(cameraX, cameraY)) return;
+
+          cameraX = oldCameraX;
+          cameraY = oldCameraY;
+        } else {
+          // Precise resolution for fast movement
+          for (const chunk of map) {
+            for (const dino of chunk.dinos) {
+              const dinoLeft = chunk.x * CHUNK_SIZE + dino.localX;
+              const dinoRight = dinoLeft + dino.size;
+              const dinoTop = chunk.y * CHUNK_SIZE + dino.localY;
+              const dinoBottom = dinoTop + dino.size;
+
+              const mcLeft = cameraX - 8;
+              const mcRight = cameraX + 8;
+              const mcTop = cameraY - 12;
+              const mcBottom = cameraY + 12;
+
+              if (!(
+                mcRight <= dinoLeft ||
+                mcLeft >= dinoRight ||
+                mcBottom <= dinoTop ||
+                mcTop >= dinoBottom
+              )) {
+                // Collision detected - resolve precisely
+                if (mcRight <= dinoLeft) {
+                  cameraX = dinoLeft - 8;
+                } else if (mcLeft >= dinoRight) {
+                  cameraX = dinoRight + 8;
+                } else if (mcBottom <= dinoTop) {
+                  cameraY = dinoTop - 12;
+                } else if (mcTop >= dinoBottom) {
+                  cameraY = dinoBottom + 12;
+                } else {
+                  const overlapLeft = mcRight - dinoLeft;
+                  const overlapRight = dinoRight - mcLeft;
+                  const overlapTop = mcBottom - dinoTop;
+                  const overlapBottom = dinoBottom - mcTop;
+
+                  if (
+                    Math.min(overlapLeft, overlapRight) <
+                    Math.min(overlapTop, overlapBottom)
+                  ) {
+                    if (overlapLeft < overlapRight) {
+                      cameraX -= overlapLeft;
+                    } else {
+                      cameraX += overlapRight;
+                    }
+                  } else {
+                    if (overlapTop < overlapBottom) {
+                      cameraY -= overlapTop;
+                    } else {
+                      cameraY += overlapBottom;
+                    }
+                  }
+                }
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      // ── RENDER ─────────────────────────────────────────────────
+      function renderMap(timestamp) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const cullBuffer = CHUNK_SIZE;
+        const cullLeft = cameraX - canvas.width / 2 - cullBuffer;
+        const cullTop = cameraY - canvas.height / 2 - cullBuffer;
+        const cullRight = cameraX + canvas.width / 2 + cullBuffer;
+        const cullBottom = cameraY + canvas.height / 2 + cullBuffer;
+
+        // Draw chunks and obstacles
+        for (const chunk of map) {
+          const chunkWorldX = chunk.x * CHUNK_SIZE;
+          const chunkWorldY = chunk.y * CHUNK_SIZE;
+          if (
+            chunkWorldX + CHUNK_SIZE < cullLeft ||
+            chunkWorldX > cullRight ||
+            chunkWorldY + CHUNK_SIZE < cullTop ||
+            chunkWorldY > cullBottom
+          )
+            continue;
+
+          const drawX = chunkWorldX - cameraX + canvas.width / 2;
+          const drawY = chunkWorldY - cameraY + canvas.height / 2;
+
+          // Terrain fill + grid line
+          ctx.fillStyle = TERRAIN_TYPES[chunk.type].color;
+          ctx.fillRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
+          ctx.strokeStyle = "rgba(0,0,0,0.15)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(drawX, drawY, CHUNK_SIZE, CHUNK_SIZE);
+
+          // Draw obstacles
+          for (const obstacle of chunk.obstacles) {
+            ctx.fillStyle = obstacle.color;
+            ctx.fillRect(
+              drawX + obstacle.localX,
+              drawY + obstacle.localY,
+              obstacle.size,
+              obstacle.size,
+            );
+          }
+        }
+
+        // Draw dinos separately - only if in MC's vision range
+        for (const chunk of map) {
+          for (const dino of chunk.dinos) {
+            const dinoWorldX = chunk.x * CHUNK_SIZE + dino.localX;
+            const dinoWorldY = chunk.y * CHUNK_SIZE + dino.localY;
+
+            if (
+              dinoWorldX + dino.size < cullLeft ||
+              dinoWorldX - dino.size > cullRight ||
+              dinoWorldY + dino.size < cullTop ||
+              dinoWorldY - dino.size > cullBottom
+            )
+              continue;
+
+            const drawX = dinoWorldX - cameraX + canvas.width / 2;
+            const drawY = dinoWorldY - cameraY + canvas.height / 2;
+
+            ctx.fillStyle = dino.color;
+            ctx.fillRect(drawX, drawY, dino.size, dino.size);
+          }
+        }
+
+        // Player
+        const playerWidth = 16,
+          playerHeight = 24;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          canvas.width / 2 - playerWidth / 2,
+          canvas.height / 2 - playerHeight / 2,
+          playerWidth,
+          playerHeight,
+        );
+
+        debugEl.textContent = `cam (${Math.round(cameraX)}, ${Math.round(cameraY)})`;
+      }
+
+      // ── DINO AI ───────────────────────────────────────────────
+      function updateDinos(dt) {
+        for (const chunk of map) {
+          for (const dino of chunk.dinos) {
+            if (dino.ai === undefined) {
+              dino.ai = {
+                state: "idle",
+                timer: 0,
+                directionX: 0,
+                directionY: 0,
+                speed: 0,
+                directionTimer: 0,
+                directionInterval: 0,
+              };
+              dino.ai.timer = worldRng() * 2 + 1;
+            }
+
+            const ai = dino.ai;
+            const dinoType = DINO_TYPES.find((t) => t.type === dino.type);
+            if (!dinoType) continue;
+
+            ai.timer -= dt;
+
+            if (ai.timer <= 0) {
+              if (ai.state === "idle") {
+                ai.state = "walking";
+                const angle = worldRng() * Math.PI * 2;
+                ai.directionX = Math.cos(angle);
+                ai.directionY = Math.sin(angle);
+                ai.speed = dinoType.normalSpeed;
+                ai.timer = worldRng() * 3 + 2;
+                ai.directionTimer = worldRng() * 1 + 0.5;
+                ai.directionInterval = ai.directionTimer;
+              } else {
+                ai.state = "idle";
+                ai.directionX = 0;
+                ai.directionY = 0;
+                ai.speed = 0;
+                ai.timer = worldRng() * 2 + 1;
+              }
+            }
+
+            if (ai.state === "walking" && ai.speed > 0) {
+              ai.directionTimer -= dt;
+              if (ai.directionTimer <= 0) {
+                const angle = worldRng() * Math.PI * 2;
+                ai.directionX = Math.cos(angle);
+                ai.directionY = Math.sin(angle);
+                ai.directionTimer = worldRng() * 1 + 0.5;
+              }
+
+              const moveX = ai.directionX * ai.speed * dt;
+              const moveY = ai.directionY * ai.speed * dt;
+
+              const oldLocalX = dino.localX;
+              const oldLocalY = dino.localY;
+
+              dino.localX += moveX;
+              dino.localY += moveY;
+
+              const collidesRock = checkDinoRockCollision(dino, chunk);
+              const collidesMC = checkDinoMCCollision(dino, chunk);
+              const collidesDino = checkDinoDinoCollision(dino, chunk);
+
+              if (collidesRock || collidesMC || collidesDino) {
+                dino.localX = oldLocalX + moveX;
+                dino.localY = oldLocalY;
+
+                if (
+                  checkDinoRockCollision(dino, chunk) ||
+                  checkDinoMCCollision(dino, chunk) ||
+                  checkDinoDinoCollision(dino, chunk)
+                ) {
+                  dino.localX = oldLocalX;
+                  dino.localY = oldLocalY + moveY;
+
+                  if (
+                    checkDinoRockCollision(dino, chunk) ||
+                    checkDinoMCCollision(dino, chunk) ||
+                    checkDinoDinoCollision(dino, chunk)
+                  ) {
+                    dino.localX = oldLocalX;
+                    dino.localY = oldLocalY;
+                  }
+                }
+              }
+
+              // Limit dino to initial chunk only
+              let dinoWorldX = chunk.x * CHUNK_SIZE + dino.localX;
+              let dinoWorldY = chunk.y * CHUNK_SIZE + dino.localY;
+
+              const minX = INIT_CHUNK_X * CHUNK_SIZE + dino.size / 2;
+              const maxX = (INIT_CHUNK_X + 1) * CHUNK_SIZE - dino.size / 2;
+              const minY = INIT_CHUNK_Y * CHUNK_SIZE + dino.size / 2;
+              const maxY = (INIT_CHUNK_Y + 1) * CHUNK_SIZE - dino.size / 2;
+
+              dinoWorldX = Math.max(minX, Math.min(maxX, dinoWorldX));
+              dinoWorldY = Math.max(minY, Math.min(maxY, dinoWorldY));
+
+              dinoWorldX = Math.max(
+                dino.size / 2,
+                Math.min(MAP_SIZE - dino.size / 2, dinoWorldX),
+              );
+              dinoWorldY = Math.max(
+                dino.size / 2,
+                Math.min(MAP_SIZE - dino.size / 2, dinoWorldY),
+              );
+
+              dino.localX = dinoWorldX - chunk.x * CHUNK_SIZE;
+              dino.localY = dinoWorldY - chunk.y * CHUNK_SIZE;
+            }
+          }
+        }
+      }
+
+      // ── INPUT ──────────────────────────────────────────────────
+      const keys = {};
+      window.addEventListener("keydown", (e) => (keys[e.key] = true));
+      window.addEventListener("keyup", (e) => (keys[e.key] = false));
+
+      canvas.addEventListener("mousedown", (e) => {
+        joystickActive = true;
+        positionJoystick(e.clientX, e.clientY);
+        updateJoystick(e.clientX, e.clientY);
+      });
+      canvas.addEventListener(
+        "touchstart",
+        (e) => {
+          joystickActive = true;
+          const touch = e.touches[0];
+          positionJoystick(touch.clientX, touch.clientY);
+          updateJoystick(touch.clientX, touch.clientY);
+        },
+        { passive: true },
+      );
+      canvas.addEventListener("mousemove", (e) => {
+        if (joystickActive) updateJoystick(e.clientX, e.clientY);
+      });
+      canvas.addEventListener(
+        "touchmove",
+        (e) => {
+          if (joystickActive)
+            updateJoystick(e.touches[0].clientX, e.touches[0].clientY);
+        },
+        { passive: true },
+      );
+
+      const stopJoystick = () => {
+        joystickActive = false;
+        joystickBase.style.display = "none";
+        joystickDeltaX = 0;
+        joystickDeltaY = 0;
+      };
+      canvas.addEventListener("mouseup", stopJoystick);
+      canvas.addEventListener("touchend", stopJoystick);
+      canvas.addEventListener("mouseleave", stopJoystick);
+
+      // ── CAMERA CLAMP ───────────────────────────────────────────
+      function clampCamera() {
+        cameraX = Math.max(0, Math.min(MAP_SIZE, cameraX));
+        cameraY = Math.max(0, Math.min(MAP_SIZE, cameraY));
+      }
+
+      // ── GAME LOOP ───────────────────────────────────────────────
+      function gameLoop(timestamp) {
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+        lastTime = timestamp;
+
+        updateDinos(dt);
+
+        const oldCameraX = cameraX;
+        const oldCameraY = cameraY;
+
+        let moveX = 0;
+        let moveY = 0;
+        if (keys["w"] || keys["ArrowUp"]) moveY -= PLAYER_SPEED * dt;
+        if (keys["s"] || keys["ArrowDown"]) moveY += PLAYER_SPEED * dt;
+        if (keys["a"] || keys["ArrowLeft"]) moveX -= PLAYER_SPEED * dt;
+        if (keys["d"] || keys["ArrowRight"]) moveX += PLAYER_SPEED * dt;
+        if (joystickActive) {
+          moveX += (joystickDeltaX / joystickRadius) * PLAYER_SPEED * dt;
+          moveY += (joystickDeltaY / joystickRadius) * PLAYER_SPEED * dt;
+        }
+
+        cameraX = oldCameraX + moveX;
+        cameraY = oldCameraY + moveY;
+
+        if (checkRockCollision(cameraX, cameraY)) {
+          resolveRockCollision();
+        }
+
+        if (checkMCDinoCollision(cameraX, cameraY)) {
+          resolveMCDinoCollision(oldCameraX, oldCameraY, moveX, moveY);
+        }
+
+        clampCamera();
+        renderMap(timestamp);
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ── START ──────────────────────────────────────────────────
+      const rng = mulberry32(SEED);
+      map = applyCellularAutomata(initializeMap(rng));
+      worldRng = mulberry32(SEED + 1);
+
+      const mcChunkX = Math.floor(cameraX / CHUNK_SIZE);
+      const mcChunkY = Math.floor(cameraY / CHUNK_SIZE);
+
+      INIT_CHUNK_X = mcChunkX;
+      INIT_CHUNK_Y = mcChunkY;
+
+      const mcChunk = map.find((c) => c.x === mcChunkX && c.y === mcChunkY);
+      if (mcChunk) {
+        mcChunk.dinos.push({
+          type: "rex",
+          color: "#FF0000",
+          size: 35,
+          localX: 20,
+          localY: 60,
+        });
+
+        mcChunk.dinos.push({
+          type: "raptor",
+          color: "#0000FF",
+          size: 25,
+          localX: 100,
+          localY: 20,
+        });
+
+        mcChunk.dinos.push({
+          type: "dodo",
+          color: "#FFFF00",
+          size: PLAYER_WIDTH,
+          localX: 150,
+          localY: 100,
+        });
+
+        mcChunk.obstacles.push({
+          type: "rock",
+          color: "#808080",
+          size: 40,
+          localX: 150,
+          localY: 150,
+        });
+        rockWorldX = mcChunkX * CHUNK_SIZE + 150;
+        rockWorldY = mcChunkY * CHUNK_SIZE + 150;
+        rockSize = 40;
+      }
+
+      requestAnimationFrame((ts) => {
+        lastTime = ts;
+        gameLoop(ts);
+      });
+    </script>
+  </body>
+</html>

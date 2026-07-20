@@ -1,193 +1,259 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minimalist Sprite Sandbox</title>
-  <style>
-    body {
-      margin: 0;
-      background-color: #121212;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
-    }
-    canvas {
-      background-color: #151515;
-      border: 2px solid #333;
-      box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-    }
-  </style>
-</head>
-<body>
-  <canvas id="sandboxCanvas"></canvas>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Minimalist Sprite Sandbox</title>
+    <style>
+      body {
+        margin: 0;
+        background-color: #121212;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      canvas {
+        background-color: #151515;
+        border: 2px solid #333;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="sandboxCanvas"></canvas>
 
-  <script>
-    /**
-    * =========================================================================
-    * CANVAS DRAWING API CHEAT SHEET
-    * =========================================================================
-    * * 1. COLORS & STYLES
-    * ctx.fillStyle = "#hex";         // Set inside color (solid or rgba)
-    * ctx.strokeStyle = "#hex";       // Set outline color
-    * ctx.lineWidth = number;         // Set outline thickness
-    * * * 2. FAST RECTANGLES (What you are using for pure pixel art)
-    * ctx.fillRect(x, y, w, h);       // Draw a solid square/rectangle
-    * ctx.strokeRect(x, y, w, h);     // Draw an outline square/rectangle
-    * * * 3. CUSTOM PATHS (Diamonds, Polygons, Lines)
-    * ctx.beginPath();                // 1. Start a new custom shape
-    * ctx.moveTo(x, y);               // 2. Move pen to start point (no draw)
-    * ctx.lineTo(x, y);               // 3. Draw a line to the next point
-    * ctx.closePath();                // 4. Snap line back to the start
-    * ctx.fill();                     // 5. Fill the shape with color
-    * ctx.stroke();                   // 6. Draw the outline of the shape
-    * * * 4. MATRIX STATES
-    * ctx.save();                     // Save current grid scale/colors
-    * ctx.restore();                  // Undo back to the saved state
-    * =========================================================================
-    */
+    <script>
+      /**
+       * =========================================================================
+       * CANVAS DRAWING API CHEAT SHEET
+       * =========================================================================
+       * * 1. COLORS & STYLES
+       * ctx.fillStyle = "#hex";         // Set inside color (solid or rgba)
+       * ctx.strokeStyle = "#hex";       // Set outline color
+       * ctx.lineWidth = number;         // Set outline thickness
+       * * * 2. FAST RECTANGLES (What you are using for pure pixel art)
+       * ctx.fillRect(x, y, w, h);       // Draw a solid square/rectangle
+       * ctx.strokeRect(x, y, w, h);     // Draw an outline square/rectangle
+       * * * 3. CUSTOM PATHS (Diamonds, Polygons, Lines)
+       * ctx.beginPath();                // 1. Start a new custom shape
+       * ctx.moveTo(x, y);               // 2. Move pen to start point (no draw)
+       * ctx.lineTo(x, y);               // 3. Draw a line to the next point
+       * ctx.closePath();                // 4. Snap line back to the start
+       * ctx.fill();                     // 5. Fill the shape with color
+       * ctx.stroke();                   // 6. Draw the outline of the shape
+       * * * 4. MATRIX STATES
+       * ctx.save();                     // Save current grid scale/colors
+       * ctx.restore();                  // Undo back to the saved state
+       * =========================================================================
+       */
 
-    const canvas = document.getElementById('sandboxCanvas');
-    const ctx = canvas.getContext('2d');
-    const GRID_SIZE = 32;
+      const canvas = document.getElementById("sandboxCanvas");
+      const ctx = canvas.getContext("2d");
+      const GRID_SIZE = 32;
 
-    // ── SPRITE DEFINITIONS ─────────────────────────────────────
-    const sprites = [
+      // ── SPRITE DEFINITIONS ─────────────────────────────────────
+      const sprites = [
+        // ── Gatherable Rock ───────────────────────────────────────
+        {
+          type: "gatherable_rock",
+          gridX: 6,
+          gridY: 20,
+          draw(ctx, originX, originY, pixel) {
+            const centerX = originX + pixel;
+            const centerY = originY + pixel;
 
-      // ── Gatherable Rock ───────────────────────────────────────
-      {
-        type: 'gatherable_rock',
-        gridX: 6,
-        gridY: 20,
-        draw(ctx, originX, originY, pixel) {
-          const centerX = originX + pixel;
-          const centerY = originY + pixel;
+            ctx.fillStyle = "#7A85A9";
+            ctx.fillRect(
+              centerX - pixel,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
 
-          ctx.fillStyle = '#7A85A9';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
+            ctx.fillStyle = "#4C4C67";
+            ctx.fillRect(centerX, centerY, pixel, pixel);
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+          },
+        },
 
-          ctx.fillStyle = '#4C4C67';
-          ctx.fillRect(centerX, centerY, pixel, pixel);
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
-          ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+        // ── Tree ──────────────────────────────────────────────────
+        {
+          type: "tree",
+          gridX: 20,
+          gridY: 10,
+          draw(ctx, originX, originY, pixel) {
+            const trunkX = originX + pixel * 2;
+            const trunkY = originY + pixel * 3;
+
+            ctx.fillStyle = "#8B4513";
+            ctx.fillRect(trunkX, trunkY + pixel, pixel, pixel);
+
+            ctx.fillStyle = "#228B22";
+            ctx.fillRect(
+              trunkX - pixel * 2,
+              trunkY - pixel * 2,
+              pixel * 5,
+              pixel * 3,
+            );
+            ctx.fillRect(trunkX - pixel, trunkY - pixel * 3, pixel * 3, pixel);
+          },
+        },
+
+        // ── Berry Bush ────────────────────────────────────────────
+        {
+          type: "berry_bush",
+          gridX: 24,
+          gridY: 24,
+          draw(ctx, originX, originY, pixel) {
+            const centerX = originX + pixel * 2;
+            const centerY = originY + pixel;
+
+            ctx.fillStyle = "#228B22";
+            ctx.fillRect(
+              centerX - pixel * 2,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
+
+            ctx.fillStyle = "#FF0000";
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX - pixel * 2, centerY, pixel, pixel);
+            ctx.fillRect(centerX, centerY + pixel, pixel, pixel);
+          },
+        },
+
+        // ── Metal Node ────────────────────────────────────────────
+        {
+          type: "metal_node",
+          gridX: 14,
+          gridY: 26,
+          draw(ctx, originX, originY, pixel) {
+            const centerX = originX + pixel;
+            const centerY = originY + pixel;
+
+            ctx.fillStyle = "#272735";
+            ctx.fillRect(
+              centerX - pixel,
+              centerY - pixel,
+              pixel * 3,
+              pixel * 3,
+            );
+
+            ctx.fillStyle = "#4C4C67";
+            ctx.fillRect(centerX, centerY, pixel, pixel);
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+            ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
+
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
+          },
+        },
+        // ── Your Custom Sketched Rex ──────────────────────────────
+        {
+          type: "rex",
+          gridX: 4,
+          // Positioned top-left
+          gridY: 4,
+          draw(ctx, originX, originY, pixel) {
+            ctx.fillStyle = "#FFC107";
+            // Head Top
+            ctx.fillRect(originX + pixel * 4, originY, pixel * 5, pixel);
+            // head
+            ctx.fillRect(
+              originX + pixel * 4,
+              originY + pixel,
+              pixel,
+              pixel * 2,
+            );
+            ctx.fillRect(
+              originX + pixel * 5,
+              originY + pixel * 2,
+              pixel * 2,
+              pixel * 2,
+            );
+            ctx.fillRect(
+              originX + pixel * 6,
+              originY + pixel,
+              pixel * 3,
+              pixel,
+            );
+            ctx.fillRect(
+              originX + pixel * 4,
+              originY + pixel * 3,
+              pixel * 5,
+              pixel,
+            );
+            ctx.fillRect(
+              originX + pixel * 4,
+              originY + pixel * 4,
+              pixel * 3,
+              pixel,
+            );
+            // arm
+            ctx.fillRect(
+              originX + pixel * 3,
+              originY + pixel * 5,
+              pixel * 5,
+              pixel,
+            );
+            // belly
+            ctx.fillRect(
+              originX + pixel * 2,
+              originY + pixel * 6,
+              pixel * 5,
+              pixel,
+            );
+            // leg
+            ctx.fillRect(
+              originX + pixel,
+              originY + pixel * 7,
+              pixel * 7,
+              pixel,
+            );
+          },
+        },
+      ];
+
+      // ── RENDER ─────────────────────────────────────────────────
+      function render() {
+        const minDimension = Math.min(window.innerWidth, window.innerHeight);
+        const size = minDimension > 0 ? Math.floor(minDimension * 0.95) : 800;
+        canvas.width = size;
+        canvas.height = size;
+        const pixelScale = canvas.width / GRID_SIZE;
+
+        ctx.fillStyle = "#151515";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Grid lines
+        ctx.strokeStyle = "#222";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= GRID_SIZE; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * pixelScale, 0);
+          ctx.lineTo(i * pixelScale, canvas.height);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, i * pixelScale);
+          ctx.lineTo(canvas.width, i * pixelScale);
+          ctx.stroke();
         }
-      },
 
-      // ── Tree ──────────────────────────────────────────────────
-      {
-        type: 'tree',
-        gridX: 20,
-        gridY: 10,
-        draw(ctx, originX, originY, pixel) {
-          const trunkX = originX + pixel * 2;
-          const trunkY = originY + pixel * 3;
-
-          ctx.fillStyle = '#8B4513';
-          ctx.fillRect(trunkX, trunkY + pixel, pixel, pixel);
-
-          ctx.fillStyle = '#228B22';
-          ctx.fillRect(trunkX - pixel * 2, trunkY - pixel * 2, pixel * 5, pixel * 3);
-          ctx.fillRect(trunkX - pixel, trunkY - pixel * 3, pixel * 3, pixel);
+        // Draw all sprites inside scaled context
+        ctx.save();
+        ctx.scale(pixelScale, pixelScale);
+        for (const sprite of sprites) {
+          sprite.draw(ctx, sprite.gridX, sprite.gridY, 1);
         }
-      },
-
-      // ── Berry Bush ────────────────────────────────────────────
-      {
-        type: 'berry_bush',
-        gridX: 24,
-        gridY: 24,
-        draw(ctx, originX, originY, pixel) {
-          const centerX = originX + pixel * 2;
-          const centerY = originY + pixel;
-
-          ctx.fillStyle = '#228B22';
-          ctx.fillRect(centerX - pixel * 2, centerY - pixel, pixel * 3, pixel * 3);
-
-          ctx.fillStyle = '#FF0000';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
-          ctx.fillRect(centerX - pixel * 2, centerY, pixel, pixel);
-          ctx.fillRect(centerX, centerY + pixel, pixel, pixel);
-        }
-      },
-
-      // ── Metal Node ────────────────────────────────────────────
-      {
-        type: 'metal_node',
-        gridX: 14,
-        gridY: 26,
-        draw(ctx, originX, originY, pixel) {
-          const centerX = originX + pixel;
-          const centerY = originY + pixel;
-
-          ctx.fillStyle = '#272735';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel * 3, pixel * 3);
-
-          ctx.fillStyle = '#4C4C67';
-          ctx.fillRect(centerX, centerY, pixel, pixel);
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
-          ctx.fillRect(centerX + pixel, centerY + pixel, pixel, pixel);
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(centerX - pixel, centerY - pixel, pixel, pixel);
-        }
-      },
-      // ── Your Custom Sketched Rex ──────────────────────────────
-      {
-        type: 'rex',
-        gridX: 4,
-        // Positioned top-left
-        gridY: 4,
-        draw(ctx, originX, originY, pixel) {
-          ctx.fillStyle = '#FFC107';
-          // Head Top
-          ctx.fillRect(originX + pixel * 4, originY, pixel * 5, pixel);
-          // head
-          ctx.fillRect(originX + pixel * 4, originY + pixel, pixel, pixel * 2);
-          ctx.fillRect(originX + pixel * 5, originY + pixel * 2, pixel * 2, pixel * 2);
-          ctx.fillRect(originX + pixel * 6, originY + pixel, pixel * 3, pixel);
-          ctx.fillRect(originX + pixel * 4, originY + pixel * 3, pixel * 5, pixel);
-          ctx.fillRect(originX + pixel * 4, originY + pixel * 4, pixel * 3, pixel);
-          // arm
-          ctx.fillRect(originX + pixel * 3, originY + pixel * 5, pixel * 5, pixel);
-          // belly
-          ctx.fillRect(originX + pixel * 2, originY + pixel * 6, pixel * 5, pixel);
-          // leg
-          ctx.fillRect(originX + pixel, originY + pixel * 7, pixel * 7, pixel);
-        }
-      }];
-
-    // ── RENDER ─────────────────────────────────────────────────
-    function render() {
-      const minDimension = Math.min(window.innerWidth, window.innerHeight);
-      const size = minDimension > 0 ? Math.floor(minDimension * 0.95): 800;
-      canvas.width = size;
-      canvas.height = size;
-      const pixelScale = canvas.width / GRID_SIZE;
-
-      ctx.fillStyle = '#151515';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Grid lines
-      ctx.strokeStyle = '#222';
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= GRID_SIZE; i++) {
-        ctx.beginPath(); ctx.moveTo(i * pixelScale, 0); ctx.lineTo(i * pixelScale, canvas.height); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, i * pixelScale); ctx.lineTo(canvas.width, i * pixelScale); ctx.stroke();
+        ctx.restore();
       }
 
-      // Draw all sprites inside scaled context
-      ctx.save();
-      ctx.scale(pixelScale, pixelScale);
-      for (const sprite of sprites) {
-        sprite.draw(ctx, sprite.gridX, sprite.gridY, 1);
-      }
-      ctx.restore();
-    }
-
-    window.addEventListener('resize', render);
-    render();
-  </script>
-</body>
+      window.addEventListener("resize", render);
+      render();
+    </script>
+  </body>
 </html>
